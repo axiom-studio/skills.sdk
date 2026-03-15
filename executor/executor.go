@@ -100,11 +100,12 @@ func (g *ExecutionGraph) GetConnectedTools(nodeID string) []*GraphNode {
 
 // GraphNode represents a node in the execution graph
 type GraphNode struct {
-	Id       string
-	Type     string
-	Name     string
-	Config   map[string]interface{}
-	Position *NodePosition
+	Id        string
+	Name      string
+	Type      string
+	PositionX float64
+	PositionY float64
+	Config    map[string]interface{}
 }
 
 // GraphEdge represents a connection between nodes
