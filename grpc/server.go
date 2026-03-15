@@ -89,7 +89,7 @@ func (s *SkillServer) Execute(ctx context.Context, req *skillpb.ExecuteRequest) 
 	}
 
 	// Create resolver using the shared implementation
-	res := resolver.NewSimpleResolver(resolver.ResolverConfig{
+	res := resolver.New(resolver.Config{
 		Bindings: bindings,
 		Nodes:    map[string]interface{}{"prev": input},
 		Prev:     input,
