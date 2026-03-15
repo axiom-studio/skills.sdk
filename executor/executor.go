@@ -52,6 +52,7 @@ type StreamingExecutor interface {
 
 // TemplateResolver interface for resolving {{}} templates
 // Provided by Axiom at runtime to skills.
+// See github.com/axiom-studio/skills.sdk/resolver for a standard implementation.
 type TemplateResolver interface {
 	ResolveString(template string) string
 	ResolveMap(input map[string]interface{}) map[string]interface{}
@@ -59,6 +60,13 @@ type TemplateResolver interface {
 	SetVariable(name string, value interface{})
 	GetStepOutput(stepName string) interface{}
 	SetStepOutput(stepName string, output interface{})
+}
+
+// BindingResolver is an optional interface for accessing bindings directly
+// Skills can use this to get connection strings, API keys, etc.
+type BindingResolver interface {
+	GetBinding(name string) interface{}
+	GetBindings() map[string]interface{}
 }
 
 // ContextProvider provides access to execution context data for code execution
