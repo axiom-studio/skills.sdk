@@ -150,43 +150,78 @@ go get github.com/axiom-studio/skills.sdk@latest
 
 ### Schema-Based Configuration
 
-Define your node config as a typed struct. The SDK automatically resolves expressions and bindings:
+Define your node config as a typed struct. The SDK automatically:
+
+1. **Resolves expressions** - `{{bindings.xxx}}` in string fields are auto-resolved
+2. **Generates schemas** - Atlas can query `GetNodeSchema` to show the config UI
 
 ```go
 import "github.com/axiom-studio/skills.sdk/resolver"
 
 // Define your config schema
 type DBQueryConfig struct {
-    // Supports {{bindings.xxx}} expressions - auto-resolved!
-    ConnectionString string           `json:"connectionString"`
-    Driver           string           `json:"driver" default:"postgres"`
-    Query            string           `json:"query"`
-    Timeout          int              `json:"timeout" default:"30"`
-    Args             []interface{}    `json:"args"`
+    ConnectionString string `json:"connectionString" description:"Database connection string, supports {{bindings.xxx}}"`
+    Driver           string `json:"driver" default:"postgres" description:"Database driver: postgres, mysql"`
+    Query            string `json:"query" description:"SQL query to execute"`
+    Timeout          int    `json:"timeout" default:"30" description:"Query timeout in seconds"`
+    Args             []interface{} `json:"args" description:"Query parameters"`
 }
 
 func (e *DBQueryExecutor) Execute(ctx context.Context, step *executor.StepDefinition, templateResolver executor.TemplateResolver) (*executor.StepResult, error) {
-    // Parse config into typed struct
     var cfg DBQueryConfig
     if err := resolver.ResolveConfig(step.Config, &cfg, templateResolver.(*resolver.Resolver)); err != nil {
         return nil, fmt.Errorf("invalid config: %w", err)
     }
     
     // All fields are typed and resolved!
-    // If connectionString was "{{bindings.dbConn}}", it's now the actual connection string
     db, _ := sql.Open(cfg.Driver, cfg.ConnectionString)
     rows, _ := db.QueryContext(ctx, cfg.Query, cfg.Args...)
-    // ...
 }
+
+// Register with auto-generated schema
+server.RegisterExecutor("db-query", &DBQueryExecutor{}, DBQueryConfig{})
 ```
 
-**In your workflow YAML:**
-```yaml
-- id: query1
-  type: db-query
-  config:
-    connectionString: "{{bindings.dbConnection}}"  # Auto-resolved!
-    query: "SELECT * FROM users WHERE id = {{trigger.userId}}"
+**Generated schema (returned by GetNodeSchema RPC):**
+```json
+{
+  "nodeType": "db-query",
+  "fields": {
+    "connectionString": {
+      "name": "connectionString",
+      "type": "string",
+      "required": true,
+      "description": "Database connection string, supports {{bindings.xxx}}"
+    },
+    "driver": {
+      "name": "driver",
+      "type": "string",
+      "required": false,
+      "default": "postgres",
+      "description": "Database driver: postgres, mysql"
+    },
+    "query": {
+      "name": "query",
+      "type": "string",
+      "required": true,
+      "description": "SQL query to execute"
+    },
+    "timeout": {
+      "name": "timeout",
+      "type": "integer",
+      "required": false,
+      "default": 30,
+      "description": "Query timeout in seconds"
+    },
+    "args": {
+      "name": "args",
+      "type": "array",
+      "required": true,
+      "description": "Query parameters",
+      "items": {"type": "string"}
+    }
+  }
+}
 ```
 
 ### Field Types
