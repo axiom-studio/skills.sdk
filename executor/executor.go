@@ -6,7 +6,7 @@ import "context"
 
 // StepDefinition defines a single step in an agent pipeline
 type StepDefinition struct {
-	ID     string                 `json:"id,omitempty"` // Node ID for graph-aware executors
+	Id     string                 `json:"id"` // Node ID for graph-aware executors
 	Name   string                 `json:"name"`
 	Type   string                 `json:"type"`
 	Config map[string]interface{} `json:"config"`
@@ -100,7 +100,7 @@ func (g *ExecutionGraph) GetConnectedTools(nodeID string) []*GraphNode {
 
 // GraphNode represents a node in the execution graph
 type GraphNode struct {
-	ID       string
+	Id       string
 	Type     string
 	Name     string
 	Config   map[string]interface{}
@@ -109,7 +109,7 @@ type GraphNode struct {
 
 // GraphEdge represents a connection between nodes
 type GraphEdge struct {
-	ID           string
+	Id           string
 	Source       string
 	Target       string
 	SourceHandle string
