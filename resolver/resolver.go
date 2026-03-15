@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// ResolverConfig holds the data needed for template resolution
-type ResolverConfig struct {
+// Config holds the data needed for template resolution
+type Config struct {
 	// Trigger data from the workflow trigger
 	Trigger map[string]interface{}
 
@@ -35,18 +35,18 @@ type ResolverConfig struct {
 	ElapsedMs int64
 }
 
-// SimpleResolver implements executor.TemplateResolver with full template support
-type SimpleResolver struct {
-	config ResolverConfig
+// Resolver implements executor.TemplateResolver with full template support
+type Resolver struct {
+	config Config
 }
 
-// NewSimpleResolver creates a new resolver with the given config
-func NewSimpleResolver(config ResolverConfig) *SimpleResolver {
-	return &SimpleResolver{config: config}
+// New creates a new resolver with the given config
+func New(config Config) *Resolver {
+	return &Resolver{config: config}
 }
 
 // ResolveString resolves {{path.to.value}} templates in a string
-func (r *SimpleResolver) ResolveString(template string) string {
+func (r *Resolver) ResolveString(template string) string {
 	result := template
 	for {
 		start := findTemplateStart(result)
@@ -84,7 +84,7 @@ func (r *SimpleResolver) ResolveString(template string) string {
 }
 
 // ResolveMap resolves all string values in a map
-func (r *SimpleResolver) ResolveMap(input map[string]interface{}) map[string]interface{} {
+func (r *Resolver) ResolveMap(input map[string]interface{}) map[string]interface{} {
 	if input == nil {
 		return nil
 	}
@@ -103,7 +103,7 @@ func (r *SimpleResolver) ResolveMap(input map[string]interface{}) map[string]int
 }
 
 // EvaluateCondition evaluates a condition string
-func (r *SimpleResolver) EvaluateCondition(condition string) bool {
+func (r *Resolver) EvaluateCondition(condition string) bool {
 	// Handle {{value}} == expected format
 	resolved := r.ResolveString(condition)
 
@@ -132,7 +132,7 @@ func (r *SimpleResolver) EvaluateCondition(condition string) bool {
 }
 
 // SetVariable sets a variable
-func (r *SimpleResolver) SetVariable(name string, value interface{}) {
+func (r *Resolver) SetVariable(name string, value interface{}) {
 	if r.config.Variables == nil {
 		r.config.Variables = make(map[string]interface{})
 	}
@@ -140,7 +140,7 @@ func (r *SimpleResolver) SetVariable(name string, value interface{}) {
 }
 
 // GetStepOutput returns the output of a previous step
-func (r *SimpleResolver) GetStepOutput(stepName string) interface{} {
+func (r *Resolver) GetStepOutput(stepName string) interface{} {
 	if r.config.Nodes == nil {
 		return nil
 	}
@@ -148,7 +148,7 @@ func (r *SimpleResolver) GetStepOutput(stepName string) interface{} {
 }
 
 // SetStepOutput sets the output of a step
-func (r *SimpleResolver) SetStepOutput(stepName string, output interface{}) {
+func (r *Resolver) SetStepOutput(stepName string, output interface{}) {
 	if r.config.Nodes == nil {
 		r.config.Nodes = make(map[string]interface{})
 	}
@@ -156,7 +156,7 @@ func (r *SimpleResolver) SetStepOutput(stepName string, output interface{}) {
 }
 
 // GetBinding returns a binding value by name
-func (r *SimpleResolver) GetBinding(name string) interface{} {
+func (r *Resolver) GetBinding(name string) interface{} {
 	if r.config.Bindings == nil {
 		return nil
 	}
@@ -164,12 +164,12 @@ func (r *SimpleResolver) GetBinding(name string) interface{} {
 }
 
 // GetBindings returns all bindings
-func (r *SimpleResolver) GetBindings() map[string]interface{} {
+func (r *Resolver) GetBindings() map[string]interface{} {
 	return r.config.Bindings
 }
 
 // GetContextData returns all context data for code execution
-func (r *SimpleResolver) GetContextData() map[string]interface{} {
+func (r *Resolver) GetContextData() map[string]interface{} {
 	return map[string]interface{}{
 		"bindings":   r.config.Bindings,
 		"trigger":    r.config.Trigger,
@@ -183,7 +183,7 @@ func (r *SimpleResolver) GetContextData() map[string]interface{} {
 }
 
 // resolvePath resolves a dot-separated path to a value
-func (r *SimpleResolver) resolvePath(path string) interface{} {
+func (r *Resolver) resolvePath(path string) interface{} {
 	parts := splitPath(path)
 	if len(parts) == 0 {
 		return nil
