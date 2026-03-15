@@ -75,9 +75,27 @@ type GraphProvider interface {
 
 // ExecutionGraph represents the agent execution graph
 type ExecutionGraph struct {
-	Nodes    map[string]*GraphNode
-	Edges    []*GraphEdge
+	Nodes     map[string]*GraphNode
+	Edges     []*GraphEdge
 	StartNode string
+}
+
+// GetConnectedTools returns tool nodes connected to a specific node
+// This is used by AI and code executors to discover available tools
+func (g *ExecutionGraph) GetConnectedTools(nodeID string) []*GraphNode {
+	var tools []*GraphNode
+	for _, edge := range g.Edges {
+		if edge.Source == nodeID {
+			if target, ok := g.Nodes[edge.Target]; ok {
+				// Check if target is a tool node (starts with "tool_")
+				if target.Type == "tool_pgvector" || target.Type == "tool_debug" || target.Type == "tool_memory" ||
+					len(target.Type) > 5 && target.Type[:5] == "tool_" {
+					tools = append(tools, target)
+				}
+			}
+		}
+	}
+	return tools
 }
 
 // GraphNode represents a node in the execution graph
