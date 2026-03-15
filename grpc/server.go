@@ -18,8 +18,8 @@ import (
 // SkillServer implements the gRPC skill service
 // Skill authors create this and register their executors
 type SkillServer struct {
-	skillpb.UnimplementedSkillServer
-	
+	skillpb.UnimplementedSkillServiceServer
+
 	skillID   string
 	version   string
 	executors map[string]executor.StepExecutor
@@ -143,7 +143,7 @@ func (s *SkillServer) Serve(port string) error {
 	}
 
 	grpcServer := grpc.NewServer()
-	skillpb.RegisterSkillServer(grpcServer, s)
+	skillpb.RegisterSkillServiceServer(grpcServer, s)
 
 	// Handle graceful shutdown
 	go func() {
