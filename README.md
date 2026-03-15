@@ -157,8 +157,8 @@ import "github.com/axiom-studio/skills.sdk/resolver"
 
 // Define your config schema
 type DBQueryConfig struct {
+    // Supports {{bindings.xxx}} expressions - auto-resolved!
     ConnectionString string           `json:"connectionString"`
-    DBConnection     resolver.Binding `json:"dbConnection"`     // Auto-resolved from bindings
     Driver           string           `json:"driver" default:"postgres"`
     Query            string           `json:"query"`
     Timeout          int              `json:"timeout" default:"30"`
@@ -172,17 +172,21 @@ func (e *DBQueryExecutor) Execute(ctx context.Context, step *executor.StepDefini
         return nil, fmt.Errorf("invalid config: %w", err)
     }
     
-    // cfg.DBConnection is already resolved from bindings!
-    connStr := cfg.ConnectionString
-    if cfg.DBConnection != "" {
-        connStr = string(cfg.DBConnection)
-    }
-    
-    // Use typed fields directly
-    db, _ := sql.Open(cfg.Driver, connStr)
+    // All fields are typed and resolved!
+    // If connectionString was "{{bindings.dbConn}}", it's now the actual connection string
+    db, _ := sql.Open(cfg.Driver, cfg.ConnectionString)
     rows, _ := db.QueryContext(ctx, cfg.Query, cfg.Args...)
     // ...
 }
+```
+
+**In your workflow YAML:**
+```yaml
+- id: query1
+  type: db-query
+  config:
+    connectionString: "{{bindings.dbConnection}}"  # Auto-resolved!
+    query: "SELECT * FROM users WHERE id = {{trigger.userId}}"
 ```
 
 ### Field Types
@@ -190,12 +194,25 @@ func (e *DBQueryExecutor) Execute(ctx context.Context, step *executor.StepDefini
 | Type | Behavior |
 |------|----------|
 | `string` | Auto-resolved if contains `{{}}` |
-| `resolver.Binding` | Resolved from bindings by name |
+| `resolver.Binding` | Specify binding name directly (e.g., `"dbConn"` → resolved from bindings) |
 | `resolver.Expr` | Always resolved as expression |
 | `int`, `int64` | Parsed from string or number |
 | `bool` | Parsed from string or bool |
 | `map[string]interface{}` | Resolved recursively |
 | `[]interface{}` | Parsed as slice |
+
+**When to use `resolver.Binding`:**
+```go
+type Config struct {
+    // Option 1: Use string with expression
+    ConnectionString string `json:"connectionString"`  // "{{bindings.dbConn}}"
+    
+    // Option 2: Use Binding for direct binding name
+    DBConnection resolver.Binding `json:"dbConnection"`  // "dbConn" (no {{}} needed)
+}
+```
+
+Both work - use whichever feels cleaner in your workflow YAML.
 
 ### Struct Tags
 
