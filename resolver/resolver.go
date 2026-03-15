@@ -5,6 +5,7 @@ package resolver
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -273,236 +274,221 @@ func getNestedValue(data interface{}, path []string) interface{} {
 }
 
 // ============================================================================
-// Type-Safe Field Resolution
+// Type-Safe Config Resolution
 // ============================================================================
 
-// Field represents a typed configuration field that can be resolved.
-// It supports static values, expressions, and binding references.
-type Field struct {
-	value interface{}
+// Expr marks a string field as an expression that should be resolved.
+// Use it as a type alias: type Expr string
+type Expr string
+
+// Binding marks a string field as a binding reference.
+// The value should be the binding name, and it will be resolved from bindings.
+type Binding string
+
+// ResolveConfig resolves a config map into a typed struct.
+// String fields are automatically resolved for {{}} expressions.
+// Fields of type Binding are resolved from bindings.
+//
+// Example:
+//
+//	type MyConfig struct {
+//	    ConnectionString string   `json:"connectionString"` // Auto-resolved if contains {{}}
+//	    DBConnection     Binding  `json:"dbConnection"`     // Resolved from bindings
+//	    Timeout          int      `json:"timeout"`
+//	    Query            Expr     `json:"query"`            // Always resolved as expression
+//	}
+//
+//	var cfg MyConfig
+//	err := resolver.ResolveConfig(config, &cfg, r)
+func ResolveConfig(src map[string]interface{}, dst interface{}, r *Resolver) error {
+	dstVal := reflect.ValueOf(dst)
+	if dstVal.Kind() != reflect.Ptr || dstVal.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("dst must be a pointer to struct")
+	}
+
+	dstVal = dstVal.Elem()
+	dstType := dstVal.Type()
+
+	for i := 0; i < dstType.NumField(); i++ {
+		field := dstType.Field(i)
+		fieldVal := dstVal.Field(i)
+
+		// Get JSON tag or use field name
+		key := field.Tag.Get("json")
+		if key == "" || key == "-" {
+			key = field.Name
+		}
+		// Remove omitempty etc
+		if idx := strings.Index(key, ","); idx != -1 {
+			key = key[:idx]
+		}
+
+		srcVal, exists := src[key]
+		if !exists {
+			// Check for default tag
+			def := field.Tag.Get("default")
+			if def != "" {
+				if err := setFieldValue(fieldVal, def, field.Type, r); err != nil {
+					return fmt.Errorf("field %s: %w", key, err)
+				}
+			}
+			continue
+		}
+
+		if err := setFieldValue(fieldVal, srcVal, field.Type, r); err != nil {
+			return fmt.Errorf("field %s: %w", key, err)
+		}
+	}
+
+	return nil
 }
 
-// Static creates a field with a static value
-func Static(v interface{}) Field {
-	return Field{value: v}
-}
+func setFieldValue(field reflect.Value, src interface{}, fieldType reflect.Type, r *Resolver) error {
+	// Handle different field types
+	switch fieldType.Kind() {
+	case reflect.String:
+		s, err := toString(src)
+		if err != nil {
+			return err
+		}
+		// Auto-resolve if it's an expression or Binding type
+		if strings.Contains(s, "{{") || fieldType.Name() == "Binding" || fieldType.Name() == "Expr" {
+			s = r.ResolveString(s)
+		}
+		field.SetString(s)
 
-// Expr creates a field from an expression like {{bindings.dbConnection}}
-func Expr(template string) Field {
-	return Field{value: template}
-}
+	case reflect.Int, reflect.Int64, reflect.Int32:
+		i, err := toInt(src)
+		if err != nil {
+			return err
+		}
+		field.SetInt(i)
 
-// Binding creates a field that references a binding by name
-func Binding(name string) Field {
-	return Field{value: "{{bindings." + name + "}}"}
-}
+	case reflect.Float64, reflect.Float32:
+		f, err := toFloat(src)
+		if err != nil {
+			return err
+		}
+		field.SetFloat(f)
 
-// FromConfig creates a field from a config value (auto-detects type)
-func FromConfig(v interface{}) Field {
-	return Field{value: v}
-}
+	case reflect.Bool:
+		b, err := toBool(src)
+		if err != nil {
+			return err
+		}
+		field.SetBool(b)
 
-// String returns the resolved string value
-func (f Field) String(r *Resolver) string {
-	switch v := f.value.(type) {
-	case string:
-		return r.ResolveString(v)
-	case nil:
-		return ""
+	case reflect.Map:
+		if src == nil {
+			return nil
+		}
+		m, ok := src.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("expected map, got %T", src)
+		}
+		// Resolve any string values in the map
+		resolved := r.ResolveMap(m)
+		field.Set(reflect.ValueOf(resolved))
+
+	case reflect.Slice:
+		if src == nil {
+			return nil
+		}
+		slice, ok := src.([]interface{})
+		if !ok {
+			return fmt.Errorf("expected slice, got %T", src)
+		}
+		field.Set(reflect.ValueOf(slice))
+
+	case reflect.Interface:
+		field.Set(reflect.ValueOf(src))
+
 	default:
-		return fmt.Sprintf("%v", v)
+		// Try to set directly
+		if src != nil {
+			srcVal := reflect.ValueOf(src)
+			if srcVal.Type().ConvertibleTo(fieldType) {
+				field.Set(srcVal.Convert(fieldType))
+			}
+		}
 	}
+
+	return nil
 }
 
-// StringOr returns the resolved string value, or a default if empty
-func (f Field) StringOr(r *Resolver, def string) string {
-	s := f.String(r)
-	if s == "" {
-		return def
+func toString(src interface{}) (string, error) {
+	if src == nil {
+		return "", nil
 	}
-	return s
-}
-
-// Int returns the resolved int value
-func (f Field) Int(r *Resolver) (int, error) {
-	switch v := f.value.(type) {
+	switch v := src.(type) {
 	case string:
-		resolved := r.ResolveString(v)
-		var i int
-		_, err := fmt.Sscanf(resolved, "%d", &i)
-		return i, err
-	case int:
 		return v, nil
-	case int64:
-		return int(v), nil
-	case float64:
-		return int(v), nil
-	case nil:
-		return 0, fmt.Errorf("field is nil")
+	case []byte:
+		return string(v), nil
 	default:
-		return 0, fmt.Errorf("cannot convert %T to int", v)
+		return fmt.Sprintf("%v", src), nil
 	}
 }
 
-// IntOr returns the resolved int value, or a default if error
-func (f Field) IntOr(r *Resolver, def int) int {
-	i, err := f.Int(r)
-	if err != nil {
-		return def
+func toInt(src interface{}) (int64, error) {
+	if src == nil {
+		return 0, nil
 	}
-	return i
-}
-
-// Int64 returns the resolved int64 value
-func (f Field) Int64(r *Resolver) (int64, error) {
-	switch v := f.value.(type) {
+	switch v := src.(type) {
+	case int:
+		return int64(v), nil
+	case int64:
+		return v, nil
+	case int32:
+		return int64(v), nil
+	case float64:
+		return int64(v), nil
 	case string:
-		resolved := r.ResolveString(v)
 		var i int64
-		_, err := fmt.Sscanf(resolved, "%d", &i)
+		_, err := fmt.Sscanf(v, "%d", &i)
 		return i, err
-	case int:
-		return int64(v), nil
-	case int64:
-		return v, nil
-	case float64:
-		return int64(v), nil
-	case nil:
-		return 0, fmt.Errorf("field is nil")
 	default:
-		return 0, fmt.Errorf("cannot convert %T to int64", v)
+		return 0, fmt.Errorf("cannot convert %T to int", src)
 	}
 }
 
-// Float64 returns the resolved float64 value
-func (f Field) Float64(r *Resolver) (float64, error) {
-	switch v := f.value.(type) {
-	case string:
-		resolved := r.ResolveString(v)
-		var f float64
-		_, err := fmt.Sscanf(resolved, "%f", &f)
-		return f, err
+func toFloat(src interface{}) (float64, error) {
+	if src == nil {
+		return 0, nil
+	}
+	switch v := src.(type) {
+	case float64:
+		return v, nil
+	case float32:
+		return float64(v), nil
 	case int:
 		return float64(v), nil
-	case float64:
-		return v, nil
-	case nil:
-		return 0, fmt.Errorf("field is nil")
+	case string:
+		var f float64
+		_, err := fmt.Sscanf(v, "%f", &f)
+		return f, err
 	default:
-		return 0, fmt.Errorf("cannot convert %T to float64", v)
+		return 0, fmt.Errorf("cannot convert %T to float", src)
 	}
 }
 
-// Bool returns the resolved bool value
-func (f Field) Bool(r *Resolver) (bool, error) {
-	switch v := f.value.(type) {
-	case string:
-		resolved := r.ResolveString(v)
-		resolved = strings.ToLower(strings.TrimSpace(resolved))
-		return resolved == "true" || resolved == "1" || resolved == "yes", nil
+func toBool(src interface{}) (bool, error) {
+	if src == nil {
+		return false, nil
+	}
+	switch v := src.(type) {
 	case bool:
 		return v, nil
-	case nil:
-		return false, fmt.Errorf("field is nil")
-	default:
-		return false, fmt.Errorf("cannot convert %T to bool", v)
-	}
-}
-
-// BoolOr returns the resolved bool value, or a default if error
-func (f Field) BoolOr(r *Resolver, def bool) bool {
-	b, err := f.Bool(r)
-	if err != nil {
-		return def
-	}
-	return b
-}
-
-// Map returns the resolved map value
-func (f Field) Map(r *Resolver) (map[string]interface{}, error) {
-	switch v := f.value.(type) {
 	case string:
-		resolved := r.ResolveString(v)
-		var m map[string]interface{}
-		if err := json.Unmarshal([]byte(resolved), &m); err != nil {
-			return nil, err
-		}
-		return m, nil
-	case map[string]interface{}:
-		return r.ResolveMap(v), nil
-	case nil:
-		return nil, fmt.Errorf("field is nil")
+		lower := strings.ToLower(strings.TrimSpace(v))
+		return lower == "true" || lower == "1" || lower == "yes", nil
 	default:
-		return nil, fmt.Errorf("cannot convert %T to map", v)
+		return false, fmt.Errorf("cannot convert %T to bool", src)
 	}
-}
-
-// Slice returns the resolved slice value
-func (f Field) Slice(r *Resolver) ([]interface{}, error) {
-	switch v := f.value.(type) {
-	case string:
-		resolved := r.ResolveString(v)
-		var s []interface{}
-		if err := json.Unmarshal([]byte(resolved), &s); err != nil {
-			return nil, err
-		}
-		return s, nil
-	case []interface{}:
-		return v, nil
-	case nil:
-		return nil, fmt.Errorf("field is nil")
-	default:
-		return nil, fmt.Errorf("cannot convert %T to slice", v)
-	}
-}
-
-// Raw returns the raw (unresolved) value
-func (f Field) Raw() interface{} {
-	return f.value
-}
-
-// IsNil returns true if the field is nil
-func (f Field) IsNil() bool {
-	return f.value == nil
-}
-
-// IsExpr returns true if the field is an expression (contains {{}})
-func (f Field) IsExpr() bool {
-	s, ok := f.value.(string)
-	if !ok {
-		return false
-	}
-	return strings.Contains(s, "{{") && strings.Contains(s, "}}")
-}
-
-// IsBinding returns true if the field references a binding
-func (f Field) IsBinding() bool {
-	s, ok := f.value.(string)
-	if !ok {
-		return false
-	}
-	return strings.HasPrefix(s, "{{bindings.")
-}
-
-// GetBindingName returns the binding name if this is a binding reference
-func (f Field) GetBindingName() string {
-	s, ok := f.value.(string)
-	if !ok {
-		return ""
-	}
-	if !strings.HasPrefix(s, "{{bindings.") {
-		return ""
-	}
-	// Extract name from {{bindings.name}}
-	end := strings.Index(s, "}}")
-	if end == -1 {
-		return ""
-	}
-	return strings.TrimSpace(s[11:end])
 }
 
 // ============================================================================
-// Typed Config for Skills
+// TypedConfig - Alternative map-based access
 // ============================================================================
 
 // TypedConfig provides type-safe access to node configuration
@@ -517,51 +503,104 @@ func NewTypedConfig(config map[string]interface{}, resolver *Resolver) *TypedCon
 }
 
 // Get returns a field by name
-func (c *TypedConfig) Get(name string) Field {
+func (c *TypedConfig) Get(name string) interface{} {
 	if c.config == nil {
-		return Field{}
+		return nil
 	}
-	return FromConfig(c.config[name])
+	return c.config[name]
 }
 
 // String returns a resolved string field
 func (c *TypedConfig) String(name string) string {
-	return c.Get(name).String(c.resolver)
+	if c.config == nil {
+		return ""
+	}
+	v := c.config[name]
+	if v == nil {
+		return ""
+	}
+	s, _ := toString(v)
+	// Auto-resolve if it's an expression
+	if strings.Contains(s, "{{") {
+		s = c.resolver.ResolveString(s)
+	}
+	return s
 }
 
 // StringOr returns a resolved string field with default
 func (c *TypedConfig) StringOr(name, def string) string {
-	return c.Get(name).StringOr(c.resolver, def)
+	s := c.String(name)
+	if s == "" {
+		return def
+	}
+	return s
 }
 
 // Int returns a resolved int field
 func (c *TypedConfig) Int(name string) (int, error) {
-	return c.Get(name).Int(c.resolver)
+	if c.config == nil {
+		return 0, fmt.Errorf("config is nil")
+	}
+	i, err := toInt(c.config[name])
+	return int(i), err
 }
 
 // IntOr returns a resolved int field with default
 func (c *TypedConfig) IntOr(name string, def int) int {
-	return c.Get(name).IntOr(c.resolver, def)
+	i, err := c.Int(name)
+	if err != nil {
+		return def
+	}
+	return i
 }
 
 // Bool returns a resolved bool field
 func (c *TypedConfig) Bool(name string) (bool, error) {
-	return c.Get(name).Bool(c.resolver)
+	if c.config == nil {
+		return false, fmt.Errorf("config is nil")
+	}
+	return toBool(c.config[name])
 }
 
 // BoolOr returns a resolved bool field with default
 func (c *TypedConfig) BoolOr(name string, def bool) bool {
-	return c.Get(name).BoolOr(c.resolver, def)
+	b, err := c.Bool(name)
+	if err != nil {
+		return def
+	}
+	return b
 }
 
 // Map returns a resolved map field
 func (c *TypedConfig) Map(name string) (map[string]interface{}, error) {
-	return c.Get(name).Map(c.resolver)
+	if c.config == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	v := c.config[name]
+	if v == nil {
+		return nil, fmt.Errorf("field %s is nil", name)
+	}
+	m, ok := v.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("field %s is not a map", name)
+	}
+	return c.resolver.ResolveMap(m), nil
 }
 
 // Slice returns a resolved slice field
 func (c *TypedConfig) Slice(name string) ([]interface{}, error) {
-	return c.Get(name).Slice(c.resolver)
+	if c.config == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
+	v := c.config[name]
+	if v == nil {
+		return nil, fmt.Errorf("field %s is nil", name)
+	}
+	s, ok := v.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("field %s is not a slice", name)
+	}
+	return s, nil
 }
 
 // Binding returns a binding value directly by name
