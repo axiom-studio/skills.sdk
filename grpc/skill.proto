@@ -25,15 +25,18 @@ message ExecuteRequest {
     // Node identification
     string node_id = 1;
     string node_type = 2;
-    
+
     // Node configuration (from the workflow definition)
     map<string, bytes> config = 3;
-    
+
     // Input data from previous node
     map<string, bytes> input = 4;
-    
+
     // Execution context
     ExecutionContext context = 5;
+
+    // Resolved bindings (connection strings, API keys, etc.)
+    map<string, bytes> bindings = 6;
 }
 
 // ExecutionContext provides runtime information

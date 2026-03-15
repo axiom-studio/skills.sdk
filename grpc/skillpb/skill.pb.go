@@ -32,7 +32,9 @@ type ExecuteRequest struct {
 	// Input data from previous node
 	Input map[string][]byte `protobuf:"bytes,4,rep,name=input,proto3" json:"input,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Execution context
-	Context       *ExecutionContext `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"`
+	Context *ExecutionContext `protobuf:"bytes,5,opt,name=context,proto3" json:"context,omitempty"`
+	// Resolved bindings (connection strings, API keys, etc.)
+	Bindings      map[string][]byte `protobuf:"bytes,6,rep,name=bindings,proto3" json:"bindings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -98,6 +100,13 @@ func (x *ExecuteRequest) GetInput() map[string][]byte {
 func (x *ExecuteRequest) GetContext() *ExecutionContext {
 	if x != nil {
 		return x.Context
+	}
+	return nil
+}
+
+func (x *ExecuteRequest) GetBindings() map[string][]byte {
+	if x != nil {
+		return x.Bindings
 	}
 	return nil
 }
@@ -571,18 +580,22 @@ var File_skill_proto protoreflect.FileDescriptor
 
 const file_skill_proto_rawDesc = "" +
 	"\n" +
-	"\vskill.proto\x12\x0eaxiom.skill.v1\"\xfc\x02\n" +
+	"\vskill.proto\x12\x0eaxiom.skill.v1\"\x83\x04\n" +
 	"\x0eExecuteRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1b\n" +
 	"\tnode_type\x18\x02 \x01(\tR\bnodeType\x12B\n" +
 	"\x06config\x18\x03 \x03(\v2*.axiom.skill.v1.ExecuteRequest.ConfigEntryR\x06config\x12?\n" +
 	"\x05input\x18\x04 \x03(\v2).axiom.skill.v1.ExecuteRequest.InputEntryR\x05input\x12:\n" +
-	"\acontext\x18\x05 \x01(\v2 .axiom.skill.v1.ExecutionContextR\acontext\x1a9\n" +
+	"\acontext\x18\x05 \x01(\v2 .axiom.skill.v1.ExecutionContextR\acontext\x12H\n" +
+	"\bbindings\x18\x06 \x03(\v2,.axiom.skill.v1.ExecuteRequest.BindingsEntryR\bbindings\x1a9\n" +
 	"\vConfigEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\x1a8\n" +
 	"\n" +
 	"InputEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\x1a;\n" +
+	"\rBindingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\xef\x01\n" +
 	"\x10ExecutionContext\x12\x15\n" +
@@ -638,7 +651,7 @@ func file_skill_proto_rawDescGZIP() []byte {
 	return file_skill_proto_rawDescData
 }
 
-var file_skill_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_skill_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_skill_proto_goTypes = []any{
 	(*ExecuteRequest)(nil),        // 0: axiom.skill.v1.ExecuteRequest
 	(*ExecutionContext)(nil),      // 1: axiom.skill.v1.ExecutionContext
@@ -652,31 +665,33 @@ var file_skill_proto_goTypes = []any{
 	(*HealthResponse)(nil),        // 9: axiom.skill.v1.HealthResponse
 	nil,                           // 10: axiom.skill.v1.ExecuteRequest.ConfigEntry
 	nil,                           // 11: axiom.skill.v1.ExecuteRequest.InputEntry
-	nil,                           // 12: axiom.skill.v1.ExecutionContext.VariablesEntry
-	nil,                           // 13: axiom.skill.v1.ExecuteResponse.OutputEntry
-	nil,                           // 14: axiom.skill.v1.Error.DetailsEntry
+	nil,                           // 12: axiom.skill.v1.ExecuteRequest.BindingsEntry
+	nil,                           // 13: axiom.skill.v1.ExecutionContext.VariablesEntry
+	nil,                           // 14: axiom.skill.v1.ExecuteResponse.OutputEntry
+	nil,                           // 15: axiom.skill.v1.Error.DetailsEntry
 }
 var file_skill_proto_depIdxs = []int32{
 	10, // 0: axiom.skill.v1.ExecuteRequest.config:type_name -> axiom.skill.v1.ExecuteRequest.ConfigEntry
 	11, // 1: axiom.skill.v1.ExecuteRequest.input:type_name -> axiom.skill.v1.ExecuteRequest.InputEntry
 	1,  // 2: axiom.skill.v1.ExecuteRequest.context:type_name -> axiom.skill.v1.ExecutionContext
-	12, // 3: axiom.skill.v1.ExecutionContext.variables:type_name -> axiom.skill.v1.ExecutionContext.VariablesEntry
-	13, // 4: axiom.skill.v1.ExecuteResponse.output:type_name -> axiom.skill.v1.ExecuteResponse.OutputEntry
-	3,  // 5: axiom.skill.v1.ExecuteResponse.error:type_name -> axiom.skill.v1.Error
-	14, // 6: axiom.skill.v1.Error.details:type_name -> axiom.skill.v1.Error.DetailsEntry
-	0,  // 7: axiom.skill.v1.SkillService.Execute:input_type -> axiom.skill.v1.ExecuteRequest
-	4,  // 8: axiom.skill.v1.SkillService.GetNodeTypes:input_type -> axiom.skill.v1.GetNodeTypesRequest
-	6,  // 9: axiom.skill.v1.SkillService.GetNodeSchema:input_type -> axiom.skill.v1.GetNodeSchemaRequest
-	8,  // 10: axiom.skill.v1.SkillService.Health:input_type -> axiom.skill.v1.HealthRequest
-	2,  // 11: axiom.skill.v1.SkillService.Execute:output_type -> axiom.skill.v1.ExecuteResponse
-	5,  // 12: axiom.skill.v1.SkillService.GetNodeTypes:output_type -> axiom.skill.v1.GetNodeTypesResponse
-	7,  // 13: axiom.skill.v1.SkillService.GetNodeSchema:output_type -> axiom.skill.v1.GetNodeSchemaResponse
-	9,  // 14: axiom.skill.v1.SkillService.Health:output_type -> axiom.skill.v1.HealthResponse
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	12, // 3: axiom.skill.v1.ExecuteRequest.bindings:type_name -> axiom.skill.v1.ExecuteRequest.BindingsEntry
+	13, // 4: axiom.skill.v1.ExecutionContext.variables:type_name -> axiom.skill.v1.ExecutionContext.VariablesEntry
+	14, // 5: axiom.skill.v1.ExecuteResponse.output:type_name -> axiom.skill.v1.ExecuteResponse.OutputEntry
+	3,  // 6: axiom.skill.v1.ExecuteResponse.error:type_name -> axiom.skill.v1.Error
+	15, // 7: axiom.skill.v1.Error.details:type_name -> axiom.skill.v1.Error.DetailsEntry
+	0,  // 8: axiom.skill.v1.SkillService.Execute:input_type -> axiom.skill.v1.ExecuteRequest
+	4,  // 9: axiom.skill.v1.SkillService.GetNodeTypes:input_type -> axiom.skill.v1.GetNodeTypesRequest
+	6,  // 10: axiom.skill.v1.SkillService.GetNodeSchema:input_type -> axiom.skill.v1.GetNodeSchemaRequest
+	8,  // 11: axiom.skill.v1.SkillService.Health:input_type -> axiom.skill.v1.HealthRequest
+	2,  // 12: axiom.skill.v1.SkillService.Execute:output_type -> axiom.skill.v1.ExecuteResponse
+	5,  // 13: axiom.skill.v1.SkillService.GetNodeTypes:output_type -> axiom.skill.v1.GetNodeTypesResponse
+	7,  // 14: axiom.skill.v1.SkillService.GetNodeSchema:output_type -> axiom.skill.v1.GetNodeSchemaResponse
+	9,  // 15: axiom.skill.v1.SkillService.Health:output_type -> axiom.skill.v1.HealthResponse
+	12, // [12:16] is the sub-list for method output_type
+	8,  // [8:12] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_skill_proto_init() }
@@ -690,7 +705,7 @@ func file_skill_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_skill_proto_rawDesc), len(file_skill_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
