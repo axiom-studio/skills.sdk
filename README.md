@@ -148,6 +148,56 @@ message ExecuteResponse {
 go get github.com/axiom-studio/skills.sdk@latest
 ```
 
+### Type-Safe Configuration
+
+The SDK provides `TypedConfig` for type-safe access to node configuration:
+
+```go
+import "github.com/axiom-studio/skills.sdk/resolver"
+
+func (e *MyExecutor) Execute(ctx context.Context, step *executor.StepDefinition, templateResolver executor.TemplateResolver) (*executor.StepResult, error) {
+    // Create typed config
+    tc := resolver.NewTypedConfig(step.Config, templateResolver.(*resolver.Resolver))
+    
+    // Type-safe access with auto-resolution of {{}} expressions
+    connectionString := tc.String("connectionString")
+    timeout := tc.IntOr("timeout", 30)
+    enabled := tc.BoolOr("enabled", true)
+    
+    // Direct binding access
+    dbConn := tc.BindingString("dbConnection")
+    
+    // Complex types
+    data, _ := tc.Map("data")
+    items, _ := tc.Slice("items")
+    
+    // ...
+}
+```
+
+### Field Types
+
+```go
+// Static value
+field := resolver.Static("hello")
+
+// Expression (auto-resolved)
+field := resolver.Expr("{{bindings.apiUrl}}")
+
+// Binding reference
+field := resolver.Binding("dbConnection")
+
+// From config (auto-detect)
+field := resolver.FromConfig(config["key"])
+
+// Type-safe resolution
+s := field.String(resolver)           // string
+i, err := field.Int(resolver)         // int
+b, err := field.Bool(resolver)        // bool
+m, err := field.Map(resolver)         // map[string]interface{}
+slice, err := field.Slice(resolver)   // []interface{}
+```
+
 ### SkillServer Helper
 
 The SDK provides a `SkillServer` helper to simplify implementation:
