@@ -148,59 +148,76 @@ message ExecuteResponse {
 go get github.com/axiom-studio/skills.sdk@latest
 ```
 
-### Type-Safe Configuration
+### Schema-Based Configuration
 
-The SDK provides `TypedConfig` for type-safe access to node configuration:
+Define your node config as a typed struct. The SDK automatically resolves expressions and bindings:
 
 ```go
 import "github.com/axiom-studio/skills.sdk/resolver"
 
-func (e *MyExecutor) Execute(ctx context.Context, step *executor.StepDefinition, templateResolver executor.TemplateResolver) (*executor.StepResult, error) {
-    // Create typed config
-    tc := resolver.NewTypedConfig(step.Config, templateResolver.(*resolver.Resolver))
+// Define your config schema
+type DBQueryConfig struct {
+    ConnectionString string           `json:"connectionString"`
+    DBConnection     resolver.Binding `json:"dbConnection"`     // Auto-resolved from bindings
+    Driver           string           `json:"driver" default:"postgres"`
+    Query            string           `json:"query"`
+    Timeout          int              `json:"timeout" default:"30"`
+    Args             []interface{}    `json:"args"`
+}
+
+func (e *DBQueryExecutor) Execute(ctx context.Context, step *executor.StepDefinition, templateResolver executor.TemplateResolver) (*executor.StepResult, error) {
+    // Parse config into typed struct
+    var cfg DBQueryConfig
+    if err := resolver.ResolveConfig(step.Config, &cfg, templateResolver.(*resolver.Resolver)); err != nil {
+        return nil, fmt.Errorf("invalid config: %w", err)
+    }
     
-    // Type-safe access with auto-resolution of {{}} expressions
-    connectionString := tc.String("connectionString")
-    timeout := tc.IntOr("timeout", 30)
-    enabled := tc.BoolOr("enabled", true)
+    // cfg.DBConnection is already resolved from bindings!
+    connStr := cfg.ConnectionString
+    if cfg.DBConnection != "" {
+        connStr = string(cfg.DBConnection)
+    }
     
-    // Direct binding access
-    dbConn := tc.BindingString("dbConnection")
-    
-    // Complex types
-    data, _ := tc.Map("data")
-    items, _ := tc.Slice("items")
-    
+    // Use typed fields directly
+    db, _ := sql.Open(cfg.Driver, connStr)
+    rows, _ := db.QueryContext(ctx, cfg.Query, cfg.Args...)
     // ...
 }
 ```
 
 ### Field Types
 
+| Type | Behavior |
+|------|----------|
+| `string` | Auto-resolved if contains `{{}}` |
+| `resolver.Binding` | Resolved from bindings by name |
+| `resolver.Expr` | Always resolved as expression |
+| `int`, `int64` | Parsed from string or number |
+| `bool` | Parsed from string or bool |
+| `map[string]interface{}` | Resolved recursively |
+| `[]interface{}` | Parsed as slice |
+
+### Struct Tags
+
+| Tag | Description |
+|-----|-------------|
+| `json:"fieldName"` | Maps config key to struct field |
+| `default:"value"` | Default value if field is missing |
+
+### Alternative: TypedConfig
+
+For simpler cases, use `TypedConfig` for map-based access:
+
 ```go
-// Static value
-field := resolver.Static("hello")
+tc := resolver.NewTypedConfig(step.Config, resolver)
 
-// Expression (auto-resolved)
-field := resolver.Expr("{{bindings.apiUrl}}")
-
-// Binding reference
-field := resolver.Binding("dbConnection")
-
-// From config (auto-detect)
-field := resolver.FromConfig(config["key"])
-
-// Type-safe resolution
-s := field.String(resolver)           // string
-i, err := field.Int(resolver)         // int
-b, err := field.Bool(resolver)        // bool
-m, err := field.Map(resolver)         // map[string]interface{}
-slice, err := field.Slice(resolver)   // []interface{}
+connectionString := tc.String("connectionString")
+timeout := tc.IntOr("timeout", 30)
+enabled := tc.BoolOr("enabled", true)
+dbConn := tc.BindingString("dbConnection")
 ```
 
 ### SkillServer Helper
-
-The SDK provides a `SkillServer` helper to simplify implementation:
 
 ```go
 import "github.com/axiom-studio/skills.sdk/grpc"
