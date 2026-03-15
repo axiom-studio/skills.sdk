@@ -1,5 +1,4 @@
 // Package resolver provides template resolution for Axiom skills.
-// It handles {{path.to.value}} template expressions.
 package resolver
 
 import (
@@ -11,29 +10,14 @@ import (
 
 // Config holds the data needed for template resolution
 type Config struct {
-	// Trigger data from the workflow trigger
-	Trigger map[string]interface{}
-
-	// Bindings resolved from agent definition
-	Bindings map[string]interface{}
-
-	// Previous node's output
-	Prev map[string]interface{}
-
-	// All node outputs by node name
-	Nodes map[string]interface{}
-
-	// Variables set by set nodes
-	Variables map[string]interface{}
-
-	// Current node context
-	Self map[string]interface{}
-
-	// Run metadata
-	Run map[string]interface{}
-
-	// Elapsed time in milliseconds
-	ElapsedMs int64
+	Trigger    map[string]interface{}
+	Bindings   map[string]interface{}
+	Prev       map[string]interface{}
+	Nodes      map[string]interface{}
+	Variables  map[string]interface{}
+	Self       map[string]interface{}
+	Run        map[string]interface{}
+	ElapsedMs  int64
 }
 
 // Resolver implements executor.TemplateResolver with full template support
@@ -59,7 +43,6 @@ func (r *Resolver) ResolveString(template string) string {
 			break
 		}
 
-		// Trim whitespace from path to handle {{ nodes.x }} style templates
 		path := strings.TrimSpace(result[start+2 : end])
 		value := r.resolvePath(path)
 
@@ -105,30 +88,22 @@ func (r *Resolver) ResolveMap(input map[string]interface{}) map[string]interface
 
 // EvaluateCondition evaluates a condition string
 func (r *Resolver) EvaluateCondition(condition string) bool {
-	// Handle {{value}} == expected format
 	resolved := r.ResolveString(condition)
 
-	// Check for equality
 	if strings.Contains(resolved, "==") {
 		parts := strings.SplitN(resolved, "==", 2)
 		if len(parts) == 2 {
-			left := strings.TrimSpace(parts[0])
-			right := strings.TrimSpace(parts[1])
-			return left == right
+			return strings.TrimSpace(parts[0]) == strings.TrimSpace(parts[1])
 		}
 	}
 
-	// Check for inequality
 	if strings.Contains(resolved, "!=") {
 		parts := strings.SplitN(resolved, "!=", 2)
 		if len(parts) == 2 {
-			left := strings.TrimSpace(parts[0])
-			right := strings.TrimSpace(parts[1])
-			return left != right
+			return strings.TrimSpace(parts[0]) != strings.TrimSpace(parts[1])
 		}
 	}
 
-	// Truthy check - non-empty string is true
 	return resolved != "" && resolved != "false" && resolved != "0"
 }
 
@@ -183,7 +158,6 @@ func (r *Resolver) GetContextData() map[string]interface{} {
 	}
 }
 
-// resolvePath resolves a dot-separated path to a value
 func (r *Resolver) resolvePath(path string) interface{} {
 	parts := splitPath(path)
 	if len(parts) == 0 {
@@ -277,29 +251,13 @@ func getNestedValue(data interface{}, path []string) interface{} {
 // Type-Safe Config Resolution
 // ============================================================================
 
-// Expr marks a string field as an expression that should be resolved.
-// Use it as a type alias: type Expr string
-type Expr string
-
 // Binding marks a string field as a binding reference.
-// The value should be the binding name, and it will be resolved from bindings.
 type Binding string
 
+// Expr marks a string field as an expression that should always be resolved.
+type Expr string
+
 // ResolveConfig resolves a config map into a typed struct.
-// String fields are automatically resolved for {{}} expressions.
-// Fields of type Binding are resolved from bindings.
-//
-// Example:
-//
-//	type MyConfig struct {
-//	    ConnectionString string   `json:"connectionString"` // Auto-resolved if contains {{}}
-//	    DBConnection     Binding  `json:"dbConnection"`     // Resolved from bindings
-//	    Timeout          int      `json:"timeout"`
-//	    Query            Expr     `json:"query"`            // Always resolved as expression
-//	}
-//
-//	var cfg MyConfig
-//	err := resolver.ResolveConfig(config, &cfg, r)
 func ResolveConfig(src map[string]interface{}, dst interface{}, r *Resolver) error {
 	dstVal := reflect.ValueOf(dst)
 	if dstVal.Kind() != reflect.Ptr || dstVal.Elem().Kind() != reflect.Struct {
@@ -313,19 +271,16 @@ func ResolveConfig(src map[string]interface{}, dst interface{}, r *Resolver) err
 		field := dstType.Field(i)
 		fieldVal := dstVal.Field(i)
 
-		// Get JSON tag or use field name
 		key := field.Tag.Get("json")
 		if key == "" || key == "-" {
 			key = field.Name
 		}
-		// Remove omitempty etc
 		if idx := strings.Index(key, ","); idx != -1 {
 			key = key[:idx]
 		}
 
 		srcVal, exists := src[key]
 		if !exists {
-			// Check for default tag
 			def := field.Tag.Get("default")
 			if def != "" {
 				if err := setFieldValue(fieldVal, def, field.Type, r); err != nil {
@@ -344,14 +299,12 @@ func ResolveConfig(src map[string]interface{}, dst interface{}, r *Resolver) err
 }
 
 func setFieldValue(field reflect.Value, src interface{}, fieldType reflect.Type, r *Resolver) error {
-	// Handle different field types
 	switch fieldType.Kind() {
 	case reflect.String:
 		s, err := toString(src)
 		if err != nil {
 			return err
 		}
-		// Auto-resolve if it's an expression or Binding type
 		if strings.Contains(s, "{{") || fieldType.Name() == "Binding" || fieldType.Name() == "Expr" {
 			s = r.ResolveString(s)
 		}
@@ -386,9 +339,7 @@ func setFieldValue(field reflect.Value, src interface{}, fieldType reflect.Type,
 		if !ok {
 			return fmt.Errorf("expected map, got %T", src)
 		}
-		// Resolve any string values in the map
-		resolved := r.ResolveMap(m)
-		field.Set(reflect.ValueOf(resolved))
+		field.Set(reflect.ValueOf(r.ResolveMap(m)))
 
 	case reflect.Slice:
 		if src == nil {
@@ -404,7 +355,6 @@ func setFieldValue(field reflect.Value, src interface{}, fieldType reflect.Type,
 		field.Set(reflect.ValueOf(src))
 
 	default:
-		// Try to set directly
 		if src != nil {
 			srcVal := reflect.ValueOf(src)
 			if srcVal.Type().ConvertibleTo(fieldType) {
@@ -488,21 +438,179 @@ func toBool(src interface{}) (bool, error) {
 }
 
 // ============================================================================
+// Schema Generation
+// ============================================================================
+
+// FieldSchema describes a single field in the config schema
+type FieldSchema struct {
+	Name        string      `json:"name"`
+	Type        string      `json:"type"`
+	Required    bool        `json:"required,omitempty"`
+	Default     interface{} `json:"default,omitempty"`
+	Description string      `json:"description,omitempty"`
+	Enum        []string    `json:"enum,omitempty"`
+	Items       *FieldSchema `json:"items,omitempty"`
+	Properties  map[string]*FieldSchema `json:"properties,omitempty"`
+}
+
+// NodeSchema describes the full schema for a node type
+type NodeSchema struct {
+	NodeType    string                  `json:"nodeType"`
+	Description string                  `json:"description,omitempty"`
+	Fields      map[string]*FieldSchema `json:"fields"`
+}
+
+// GenerateSchema generates a NodeSchema from a config struct
+func GenerateSchema(nodeType string, configType interface{}) *NodeSchema {
+	t := reflect.TypeOf(configType)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	schema := &NodeSchema{
+		NodeType: nodeType,
+		Fields:   make(map[string]*FieldSchema),
+	}
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+
+		key := field.Tag.Get("json")
+		if key == "" || key == "-" {
+			continue
+		}
+		if idx := strings.Index(key, ","); idx != -1 {
+			key = key[:idx]
+		}
+
+		fieldSchema := &FieldSchema{
+			Name:        key,
+			Type:        goTypeToSchemaType(field.Type),
+			Description: field.Tag.Get("description"),
+		}
+
+		// Check for required (no default means required)
+		def := field.Tag.Get("default")
+		if def != "" {
+			fieldSchema.Default = parseDefault(def, field.Type)
+			fieldSchema.Required = false
+		} else {
+			fieldSchema.Required = true
+		}
+
+		// Handle slice items
+		if field.Type.Kind() == reflect.Slice {
+			fieldSchema.Items = &FieldSchema{
+				Type: goTypeToSchemaType(field.Type.Elem()),
+			}
+		}
+
+		// Handle nested structs
+		if field.Type.Kind() == reflect.Struct {
+			fieldSchema.Properties = generateNestedProperties(field.Type)
+		}
+
+		schema.Fields[key] = fieldSchema
+	}
+
+	return schema
+}
+
+func goTypeToSchemaType(t reflect.Type) string {
+	// Handle pointer types
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	// Handle custom types (Binding, Expr)
+	switch t.Name() {
+	case "Binding":
+		return "binding"
+	case "Expr":
+		return "expression"
+	}
+
+	switch t.Kind() {
+	case reflect.String:
+		return "string"
+	case reflect.Int, reflect.Int64, reflect.Int32:
+		return "integer"
+	case reflect.Float64, reflect.Float32:
+		return "number"
+	case reflect.Bool:
+		return "boolean"
+	case reflect.Slice, reflect.Array:
+		return "array"
+	case reflect.Map:
+		return "object"
+	case reflect.Struct:
+		return "object"
+	default:
+		return "string"
+	}
+}
+
+func parseDefault(def string, t reflect.Type) interface{} {
+	switch t.Kind() {
+	case reflect.String:
+		return def
+	case reflect.Int, reflect.Int64, reflect.Int32:
+		var i int64
+		fmt.Sscanf(def, "%d", &i)
+		return i
+	case reflect.Float64, reflect.Float32:
+		var f float64
+		fmt.Sscanf(def, "%f", &f)
+		return f
+	case reflect.Bool:
+		return strings.ToLower(def) == "true"
+	default:
+		return def
+	}
+}
+
+func generateNestedProperties(t reflect.Type) map[string]*FieldSchema {
+	props := make(map[string]*FieldSchema)
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+
+		key := field.Tag.Get("json")
+		if key == "" || key == "-" {
+			key = field.Name
+		}
+		if idx := strings.Index(key, ","); idx != -1 {
+			key = key[:idx]
+		}
+
+		props[key] = &FieldSchema{
+			Name:        key,
+			Type:        goTypeToSchemaType(field.Type),
+			Description: field.Tag.Get("description"),
+		}
+	}
+
+	return props
+}
+
+// ToJSON returns the schema as JSON
+func (s *NodeSchema) ToJSON() ([]byte, error) {
+	return json.MarshalIndent(s, "", "  ")
+}
+
+// ============================================================================
 // TypedConfig - Alternative map-based access
 // ============================================================================
 
-// TypedConfig provides type-safe access to node configuration
 type TypedConfig struct {
 	config   map[string]interface{}
 	resolver *Resolver
 }
 
-// NewTypedConfig creates a typed config wrapper
 func NewTypedConfig(config map[string]interface{}, resolver *Resolver) *TypedConfig {
 	return &TypedConfig{config: config, resolver: resolver}
 }
 
-// Get returns a field by name
 func (c *TypedConfig) Get(name string) interface{} {
 	if c.config == nil {
 		return nil
@@ -510,7 +618,6 @@ func (c *TypedConfig) Get(name string) interface{} {
 	return c.config[name]
 }
 
-// String returns a resolved string field
 func (c *TypedConfig) String(name string) string {
 	if c.config == nil {
 		return ""
@@ -520,14 +627,12 @@ func (c *TypedConfig) String(name string) string {
 		return ""
 	}
 	s, _ := toString(v)
-	// Auto-resolve if it's an expression
 	if strings.Contains(s, "{{") {
 		s = c.resolver.ResolveString(s)
 	}
 	return s
 }
 
-// StringOr returns a resolved string field with default
 func (c *TypedConfig) StringOr(name, def string) string {
 	s := c.String(name)
 	if s == "" {
@@ -536,7 +641,6 @@ func (c *TypedConfig) StringOr(name, def string) string {
 	return s
 }
 
-// Int returns a resolved int field
 func (c *TypedConfig) Int(name string) (int, error) {
 	if c.config == nil {
 		return 0, fmt.Errorf("config is nil")
@@ -545,7 +649,6 @@ func (c *TypedConfig) Int(name string) (int, error) {
 	return int(i), err
 }
 
-// IntOr returns a resolved int field with default
 func (c *TypedConfig) IntOr(name string, def int) int {
 	i, err := c.Int(name)
 	if err != nil {
@@ -554,7 +657,6 @@ func (c *TypedConfig) IntOr(name string, def int) int {
 	return i
 }
 
-// Bool returns a resolved bool field
 func (c *TypedConfig) Bool(name string) (bool, error) {
 	if c.config == nil {
 		return false, fmt.Errorf("config is nil")
@@ -562,7 +664,6 @@ func (c *TypedConfig) Bool(name string) (bool, error) {
 	return toBool(c.config[name])
 }
 
-// BoolOr returns a resolved bool field with default
 func (c *TypedConfig) BoolOr(name string, def bool) bool {
 	b, err := c.Bool(name)
 	if err != nil {
@@ -571,7 +672,6 @@ func (c *TypedConfig) BoolOr(name string, def bool) bool {
 	return b
 }
 
-// Map returns a resolved map field
 func (c *TypedConfig) Map(name string) (map[string]interface{}, error) {
 	if c.config == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -587,7 +687,6 @@ func (c *TypedConfig) Map(name string) (map[string]interface{}, error) {
 	return c.resolver.ResolveMap(m), nil
 }
 
-// Slice returns a resolved slice field
 func (c *TypedConfig) Slice(name string) ([]interface{}, error) {
 	if c.config == nil {
 		return nil, fmt.Errorf("config is nil")
@@ -603,12 +702,10 @@ func (c *TypedConfig) Slice(name string) ([]interface{}, error) {
 	return s, nil
 }
 
-// Binding returns a binding value directly by name
 func (c *TypedConfig) Binding(name string) interface{} {
 	return c.resolver.GetBinding(name)
 }
 
-// BindingString returns a binding as string
 func (c *TypedConfig) BindingString(name string) string {
 	v := c.resolver.GetBinding(name)
 	if v == nil {
@@ -620,7 +717,6 @@ func (c *TypedConfig) BindingString(name string) string {
 	return fmt.Sprintf("%v", v)
 }
 
-// Raw returns the raw config map
 func (c *TypedConfig) Raw() map[string]interface{} {
 	return c.config
 }

@@ -17,14 +17,13 @@ import (
 )
 
 // SkillServer implements the gRPC skill service
-// Skill authors create this and register their executors
 type SkillServer struct {
 	skillpb.UnimplementedSkillServiceServer
 
 	skillID   string
 	version   string
 	executors map[string]executor.StepExecutor
-	schemas   map[string][]byte
+	schemas   map[string]*resolver.NodeSchema
 }
 
 // NewSkillServer creates a new skill server
@@ -33,12 +32,23 @@ func NewSkillServer(skillID, version string) *SkillServer {
 		skillID:   skillID,
 		version:   version,
 		executors: make(map[string]executor.StepExecutor),
-		schemas:   make(map[string][]byte),
+		schemas:   make(map[string]*resolver.NodeSchema),
 	}
 }
 
-// RegisterExecutor registers an executor for a node type
-func (s *SkillServer) RegisterExecutor(nodeType string, exec executor.StepExecutor, schema []byte) {
+// RegisterExecutor registers an executor for a node type.
+// Optionally pass a config struct to auto-generate the schema.
+func (s *SkillServer) RegisterExecutor(nodeType string, exec executor.StepExecutor, configType ...interface{}) {
+	s.executors[nodeType] = exec
+
+	// Auto-generate schema from config type if provided
+	if len(configType) > 0 && configType[0] != nil {
+		s.schemas[nodeType] = resolver.GenerateSchema(nodeType, configType[0])
+	}
+}
+
+// RegisterExecutorWithSchema registers an executor with a manually defined schema
+func (s *SkillServer) RegisterExecutorWithSchema(nodeType string, exec executor.StepExecutor, schema *resolver.NodeSchema) {
 	s.executors[nodeType] = exec
 	s.schemas[nodeType] = schema
 }
@@ -134,7 +144,13 @@ func (s *SkillServer) GetNodeSchema(ctx context.Context, req *skillpb.GetNodeSch
 	if !ok {
 		return nil, fmt.Errorf("unknown node type: %s", req.NodeType)
 	}
-	return &skillpb.GetNodeSchemaResponse{Schema: schema}, nil
+
+	jsonSchema, err := schema.ToJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal schema: %w", err)
+	}
+
+	return &skillpb.GetNodeSchemaResponse{Schema: jsonSchema}, nil
 }
 
 // Health implements skillpb.SkillServer
