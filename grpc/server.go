@@ -12,6 +12,7 @@ import (
 
 	"github.com/axiom-studio/skills.sdk/executor"
 	skillpb "github.com/axiom-studio/skills.sdk/grpc/skillpb"
+	"github.com/axiom-studio/skills.sdk/resolver"
 	"google.golang.org/grpc"
 )
 
@@ -87,15 +88,15 @@ func (s *SkillServer) Execute(ctx context.Context, req *skillpb.ExecuteRequest) 
 		Config: config,
 	}
 
-	// Create execution context resolver with bindings
-	resolver := &grpcResolver{
-		variables: req.Context.Variables,
-		input:     input,
-		bindings:  bindings,
-	}
+	// Create resolver using the shared implementation
+	res := resolver.NewSimpleResolver(resolver.ResolverConfig{
+		Bindings: bindings,
+		Nodes:    map[string]interface{}{"prev": input},
+		Prev:     input,
+	})
 
 	// Execute
-	result, err := exec.Execute(ctx, step, resolver)
+	result, err := exec.Execute(ctx, step, res)
 	if err != nil {
 		return &skillpb.ExecuteResponse{
 			Error: &skillpb.Error{
@@ -164,80 +165,4 @@ func (s *SkillServer) Serve(port string) error {
 	}()
 
 	return grpcServer.Serve(lis)
-}
-
-// grpcResolver implements executor.TemplateResolver
-type grpcResolver struct {
-	variables map[string]string
-	input     map[string]interface{}
-	bindings  map[string]interface{}
-}
-
-func (r *grpcResolver) ResolveString(template string) string {
-	// Handle {{bindings.xxx}} templates
-	if len(template) >= 12 && template[:12] == "{{bindings." {
-		// Extract binding name: {{bindings.dbConnection}} -> dbConnection
-		end := len(template) - 2 // Remove }}
-		if end > 12 {
-			key := template[12:end]
-			if val, ok := r.bindings[key]; ok {
-				switch v := val.(type) {
-				case string:
-					return v
-				default:
-					if bytes, err := json.Marshal(v); err == nil {
-						return string(bytes)
-					}
-				}
-			}
-		}
-	}
-
-	if val, ok := r.variables[template]; ok {
-		return val
-	}
-	return template
-}
-
-func (r *grpcResolver) ResolveMap(input map[string]interface{}) map[string]interface{} {
-	// Resolve any {{bindings.xxx}} in string values
-	result := make(map[string]interface{})
-	for k, v := range input {
-		switch val := v.(type) {
-		case string:
-			result[k] = r.ResolveString(val)
-		default:
-			result[k] = val
-		}
-	}
-	return result
-}
-
-func (r *grpcResolver) EvaluateCondition(condition string) bool {
-	return false // TODO: implement
-}
-
-func (r *grpcResolver) SetVariable(name string, value interface{}) {
-	if s, ok := value.(string); ok {
-		r.variables[name] = s
-	}
-}
-
-func (r *grpcResolver) GetStepOutput(stepName string) interface{} {
-	return r.input
-}
-
-func (r *grpcResolver) SetStepOutput(stepName string, output interface{}) {
-	// No-op for gRPC skills
-}
-
-// GetBinding returns a binding value by name
-// This is a convenience method for skill executors
-func (r *grpcResolver) GetBinding(name string) interface{} {
-	return r.bindings[name]
-}
-
-// GetBindings returns all bindings
-func (r *grpcResolver) GetBindings() map[string]interface{} {
-	return r.bindings
 }
