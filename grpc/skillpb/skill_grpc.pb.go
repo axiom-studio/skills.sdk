@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             v6.33.1
-// source: grpc/skill.proto
+// source: skill.proto
 
 package skillpb
 
@@ -245,5 +245,5 @@ var SkillService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "grpc/skill.proto",
+	Metadata: "skill.proto",
 }

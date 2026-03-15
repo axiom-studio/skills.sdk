@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v6.33.1
-// source: grpc/skill.proto
+// source: skill.proto
 
 package skillpb
 
@@ -39,7 +39,7 @@ type ExecuteRequest struct {
 
 func (x *ExecuteRequest) Reset() {
 	*x = ExecuteRequest{}
-	mi := &file_grpc_skill_proto_msgTypes[0]
+	mi := &file_skill_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -51,7 +51,7 @@ func (x *ExecuteRequest) String() string {
 func (*ExecuteRequest) ProtoMessage() {}
 
 func (x *ExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_grpc_skill_proto_msgTypes[0]
+	mi := &file_skill_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64,7 +64,7 @@ func (x *ExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_grpc_skill_proto_rawDescGZIP(), []int{0}
+	return file_skill_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *ExecuteRequest) GetNodeId() string {
@@ -115,7 +115,7 @@ type ExecutionContext struct {
 
 func (x *ExecutionContext) Reset() {
 	*x = ExecutionContext{}
-	mi := &file_grpc_skill_proto_msgTypes[1]
+	mi := &file_skill_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -127,7 +127,7 @@ func (x *ExecutionContext) String() string {
 func (*ExecutionContext) ProtoMessage() {}
 
 func (x *ExecutionContext) ProtoReflect() protoreflect.Message {
-	mi := &file_grpc_skill_proto_msgTypes[1]
+	mi := &file_skill_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -140,7 +140,7 @@ func (x *ExecutionContext) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutionContext.ProtoReflect.Descriptor instead.
 func (*ExecutionContext) Descriptor() ([]byte, []int) {
-	return file_grpc_skill_proto_rawDescGZIP(), []int{1}
+	return file_skill_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *ExecutionContext) GetRunId() string {
@@ -186,7 +186,7 @@ type ExecuteResponse struct {
 
 func (x *ExecuteResponse) Reset() {
 	*x = ExecuteResponse{}
-	mi := &file_grpc_skill_proto_msgTypes[2]
+	mi := &file_skill_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -198,7 +198,7 @@ func (x *ExecuteResponse) String() string {
 func (*ExecuteResponse) ProtoMessage() {}
 
 func (x *ExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_grpc_skill_proto_msgTypes[2]
+	mi := &file_skill_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -211,7 +211,7 @@ func (x *ExecuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteResponse.ProtoReflect.Descriptor instead.
 func (*ExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_grpc_skill_proto_rawDescGZIP(), []int{2}
+	return file_skill_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ExecuteResponse) GetOutput() map[string][]byte {
@@ -247,7 +247,7 @@ type Error struct {
 
 func (x *Error) Reset() {
 	*x = Error{}
-	mi := &file_grpc_skill_proto_msgTypes[3]
+	mi := &file_skill_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -259,7 +259,7 @@ func (x *Error) String() string {
 func (*Error) ProtoMessage() {}
 
 func (x *Error) ProtoReflect() protoreflect.Message {
-	mi := &file_grpc_skill_proto_msgTypes[3]
+	mi := &file_skill_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -272,7 +272,7 @@ func (x *Error) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Error.ProtoReflect.Descriptor instead.
 func (*Error) Descriptor() ([]byte, []int) {
-	return file_grpc_skill_proto_rawDescGZIP(), []int{3}
+	return file_skill_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Error) GetMessage() string {
@@ -305,7 +305,7 @@ type GetNodeTypesRequest struct {
 
 func (x *GetNodeTypesRequest) Reset() {
 	*x = GetNodeTypesRequest{}
-	mi := &file_grpc_skill_proto_msgTypes[4]
+	mi := &file_skill_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -317,7 +317,7 @@ func (x *GetNodeTypesRequest) String() string {
 func (*GetNodeTypesRequest) ProtoMessage() {}
 
 func (x *GetNodeTypesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_grpc_skill_proto_msgTypes[4]
+	mi := &file_skill_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -330,7 +330,7 @@ func (x *GetNodeTypesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetNodeTypesRequest.ProtoReflect.Descriptor instead.
 func (*GetNodeTypesRequest) Descriptor() ([]byte, []int) {
-	return file_grpc_skill_proto_rawDescGZIP(), []int{4}
+	return file_skill_proto_rawDescGZIP(), []int{4}
 }
 
 // GetNodeTypesResponse
@@ -343,7 +343,7 @@ type GetNodeTypesResponse struct {
 
 func (x *GetNodeTypesResponse) Reset() {
 	*x = GetNodeTypesResponse{}
-	mi := &file_grpc_skill_proto_msgTypes[5]
+	mi := &file_skill_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -355,7 +355,7 @@ func (x *GetNodeTypesResponse) String() string {
 func (*GetNodeTypesResponse) ProtoMessage() {}
 
 func (x *GetNodeTypesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_grpc_skill_proto_msgTypes[5]
+	mi := &file_skill_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -368,7 +368,7 @@ func (x *GetNodeTypesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetNodeTypesResponse.ProtoReflect.Descriptor instead.
 func (*GetNodeTypesResponse) Descriptor() ([]byte, []int) {
-	return file_grpc_skill_proto_rawDescGZIP(), []int{5}
+	return file_skill_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetNodeTypesResponse) GetNodeTypes() []string {
@@ -388,7 +388,7 @@ type GetNodeSchemaRequest struct {
 
 func (x *GetNodeSchemaRequest) Reset() {
 	*x = GetNodeSchemaRequest{}
-	mi := &file_grpc_skill_proto_msgTypes[6]
+	mi := &file_skill_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -400,7 +400,7 @@ func (x *GetNodeSchemaRequest) String() string {
 func (*GetNodeSchemaRequest) ProtoMessage() {}
 
 func (x *GetNodeSchemaRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_grpc_skill_proto_msgTypes[6]
+	mi := &file_skill_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -413,7 +413,7 @@ func (x *GetNodeSchemaRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetNodeSchemaRequest.ProtoReflect.Descriptor instead.
 func (*GetNodeSchemaRequest) Descriptor() ([]byte, []int) {
-	return file_grpc_skill_proto_rawDescGZIP(), []int{6}
+	return file_skill_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetNodeSchemaRequest) GetNodeType() string {
@@ -434,7 +434,7 @@ type GetNodeSchemaResponse struct {
 
 func (x *GetNodeSchemaResponse) Reset() {
 	*x = GetNodeSchemaResponse{}
-	mi := &file_grpc_skill_proto_msgTypes[7]
+	mi := &file_skill_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -446,7 +446,7 @@ func (x *GetNodeSchemaResponse) String() string {
 func (*GetNodeSchemaResponse) ProtoMessage() {}
 
 func (x *GetNodeSchemaResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_grpc_skill_proto_msgTypes[7]
+	mi := &file_skill_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -459,7 +459,7 @@ func (x *GetNodeSchemaResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetNodeSchemaResponse.ProtoReflect.Descriptor instead.
 func (*GetNodeSchemaResponse) Descriptor() ([]byte, []int) {
-	return file_grpc_skill_proto_rawDescGZIP(), []int{7}
+	return file_skill_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetNodeSchemaResponse) GetSchema() []byte {
@@ -478,7 +478,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_grpc_skill_proto_msgTypes[8]
+	mi := &file_skill_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -490,7 +490,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_grpc_skill_proto_msgTypes[8]
+	mi := &file_skill_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -503,7 +503,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_grpc_skill_proto_rawDescGZIP(), []int{8}
+	return file_skill_proto_rawDescGZIP(), []int{8}
 }
 
 // HealthResponse
@@ -518,7 +518,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_grpc_skill_proto_msgTypes[9]
+	mi := &file_skill_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -530,7 +530,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_grpc_skill_proto_msgTypes[9]
+	mi := &file_skill_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -543,7 +543,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_grpc_skill_proto_rawDescGZIP(), []int{9}
+	return file_skill_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *HealthResponse) GetHealthy() bool {
@@ -567,11 +567,11 @@ func (x *HealthResponse) GetVersion() string {
 	return ""
 }
 
-var File_grpc_skill_proto protoreflect.FileDescriptor
+var File_skill_proto protoreflect.FileDescriptor
 
-const file_grpc_skill_proto_rawDesc = "" +
+const file_skill_proto_rawDesc = "" +
 	"\n" +
-	"\x10grpc/skill.proto\x12\x0eaxiom.skill.v1\"\xfc\x02\n" +
+	"\vskill.proto\x12\x0eaxiom.skill.v1\"\xfc\x02\n" +
 	"\x0eExecuteRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1b\n" +
 	"\tnode_type\x18\x02 \x01(\tR\bnodeType\x12B\n" +
@@ -627,19 +627,19 @@ const file_grpc_skill_proto_rawDesc = "" +
 	"\x06Health\x12\x1d.axiom.skill.v1.HealthRequest\x1a\x1e.axiom.skill.v1.HealthResponseB1Z/github.com/axiom-studio/skills.sdk/grpc/skillpbb\x06proto3"
 
 var (
-	file_grpc_skill_proto_rawDescOnce sync.Once
-	file_grpc_skill_proto_rawDescData []byte
+	file_skill_proto_rawDescOnce sync.Once
+	file_skill_proto_rawDescData []byte
 )
 
-func file_grpc_skill_proto_rawDescGZIP() []byte {
-	file_grpc_skill_proto_rawDescOnce.Do(func() {
-		file_grpc_skill_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_grpc_skill_proto_rawDesc), len(file_grpc_skill_proto_rawDesc)))
+func file_skill_proto_rawDescGZIP() []byte {
+	file_skill_proto_rawDescOnce.Do(func() {
+		file_skill_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_skill_proto_rawDesc), len(file_skill_proto_rawDesc)))
 	})
-	return file_grpc_skill_proto_rawDescData
+	return file_skill_proto_rawDescData
 }
 
-var file_grpc_skill_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
-var file_grpc_skill_proto_goTypes = []any{
+var file_skill_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_skill_proto_goTypes = []any{
 	(*ExecuteRequest)(nil),        // 0: axiom.skill.v1.ExecuteRequest
 	(*ExecutionContext)(nil),      // 1: axiom.skill.v1.ExecutionContext
 	(*ExecuteResponse)(nil),       // 2: axiom.skill.v1.ExecuteResponse
@@ -656,7 +656,7 @@ var file_grpc_skill_proto_goTypes = []any{
 	nil,                           // 13: axiom.skill.v1.ExecuteResponse.OutputEntry
 	nil,                           // 14: axiom.skill.v1.Error.DetailsEntry
 }
-var file_grpc_skill_proto_depIdxs = []int32{
+var file_skill_proto_depIdxs = []int32{
 	10, // 0: axiom.skill.v1.ExecuteRequest.config:type_name -> axiom.skill.v1.ExecuteRequest.ConfigEntry
 	11, // 1: axiom.skill.v1.ExecuteRequest.input:type_name -> axiom.skill.v1.ExecuteRequest.InputEntry
 	1,  // 2: axiom.skill.v1.ExecuteRequest.context:type_name -> axiom.skill.v1.ExecutionContext
@@ -679,26 +679,26 @@ var file_grpc_skill_proto_depIdxs = []int32{
 	0,  // [0:7] is the sub-list for field type_name
 }
 
-func init() { file_grpc_skill_proto_init() }
-func file_grpc_skill_proto_init() {
-	if File_grpc_skill_proto != nil {
+func init() { file_skill_proto_init() }
+func file_skill_proto_init() {
+	if File_skill_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_grpc_skill_proto_rawDesc), len(file_grpc_skill_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_skill_proto_rawDesc), len(file_skill_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_grpc_skill_proto_goTypes,
-		DependencyIndexes: file_grpc_skill_proto_depIdxs,
-		MessageInfos:      file_grpc_skill_proto_msgTypes,
+		GoTypes:           file_skill_proto_goTypes,
+		DependencyIndexes: file_skill_proto_depIdxs,
+		MessageInfos:      file_skill_proto_msgTypes,
 	}.Build()
-	File_grpc_skill_proto = out.File
-	file_grpc_skill_proto_goTypes = nil
-	file_grpc_skill_proto_depIdxs = nil
+	File_skill_proto = out.File
+	file_skill_proto_goTypes = nil
+	file_skill_proto_depIdxs = nil
 }
