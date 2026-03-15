@@ -47,9 +47,10 @@ type SkillMetadata struct {
 
 // SkillSpec defines the skill's capabilities
 type SkillSpec struct {
-	ExecutorType string             `yaml:"executorType"` // "plugin"
+	ExecutorType string             `yaml:"executorType"` // "plugin" or "grpc"
 	NodeTypes    []string           `yaml:"nodeTypes"`
-	Plugin       PluginConfig       `yaml:"plugin"`
+	Plugin       PluginConfig       `yaml:"plugin,omitempty"`
+	GRPC         GRPCConfig         `yaml:"grpc,omitempty"`
 	Dependencies SkillDependencies  `yaml:"dependencies"`
 	Permissions  []string           `yaml:"permissions"`
 	Requirements []SkillRequirement `yaml:"requirements"`
@@ -58,6 +59,13 @@ type SkillSpec struct {
 // PluginConfig specifies the plugin binary locations
 type PluginConfig struct {
 	Binary map[string]string `yaml:"binary"` // platform -> path (e.g., "linux-amd64": "executors/core.so")
+}
+
+// GRPCConfig specifies the gRPC skill configuration
+type GRPCConfig struct {
+	Address string            `yaml:"address,omitempty"` // gRPC address (e.g., "localhost:50051")
+	Binary  map[string]string `yaml:"binary,omitempty"`  // platform -> path to skill binary
+	Port    int               `yaml:"port,omitempty"`    // Port to run the skill on (if starting process)
 }
 
 // SkillDependencies defines what the skill needs from Axiom
