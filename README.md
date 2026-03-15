@@ -161,9 +161,8 @@ import "github.com/axiom-studio/skills.sdk/resolver"
 // Define your config schema
 type DBQueryConfig struct {
     ConnectionString string `json:"connectionString" description:"Database connection string, supports {{bindings.xxx}}"`
-    Driver           string `json:"driver" default:"postgres" description:"Database driver: postgres, mysql"`
+    Driver           string `json:"driver" default:"postgres" options:"PostgreSQL:postgres,MySQL:mysql" description:"Database driver"`
     Query            string `json:"query" description:"SQL query to execute"`
-    Timeout          int    `json:"timeout" default:"30" description:"Query timeout in seconds"`
     Args             []interface{} `json:"args" description:"Query parameters"`
 }
 
@@ -172,7 +171,7 @@ func (e *DBQueryExecutor) Execute(ctx context.Context, step *executor.StepDefini
     if err := resolver.ResolveConfig(step.Config, &cfg, templateResolver.(*resolver.Resolver)); err != nil {
         return nil, fmt.Errorf("invalid config: %w", err)
     }
-    
+
     // All fields are typed and resolved!
     db, _ := sql.Open(cfg.Driver, cfg.ConnectionString)
     rows, _ := db.QueryContext(ctx, cfg.Query, cfg.Args...)
@@ -182,92 +181,155 @@ func (e *DBQueryExecutor) Execute(ctx context.Context, step *executor.StepDefini
 server.RegisterExecutor("db-query", &DBQueryExecutor{}, DBQueryConfig{})
 ```
 
-**Generated schema (returned by GetNodeSchema RPC):**
-```json
-{
-  "nodeType": "db-query",
-  "fields": {
-    "connectionString": {
-      "name": "connectionString",
-      "type": "string",
-      "required": true,
-      "description": "Database connection string, supports {{bindings.xxx}}"
-    },
-    "driver": {
-      "name": "driver",
-      "type": "string",
-      "required": false,
-      "default": "postgres",
-      "description": "Database driver: postgres, mysql"
-    },
-    "query": {
-      "name": "query",
-      "type": "string",
-      "required": true,
-      "description": "SQL query to execute"
-    },
-    "timeout": {
-      "name": "timeout",
-      "type": "integer",
-      "required": false,
-      "default": 30,
-      "description": "Query timeout in seconds"
-    },
-    "args": {
-      "name": "args",
-      "type": "array",
-      "required": true,
-      "description": "Query parameters",
-      "items": {"type": "string"}
-    }
-  }
-}
+### Full UI Schema with SchemaBuilder
+
+For full control over the UI, use `SchemaBuilder`:
+
+```go
+var DBQuerySchema = resolver.NewSchemaBuilder("db-query").
+    WithName("Database Query").
+    WithCategory("database").
+    WithIcon("database").
+    WithDescription("Execute SQL queries against a database").
+    AddSection("Connection").
+        AddExpressionField("connectionString", "Connection String",
+            resolver.WithRequired(),
+            resolver.WithPlaceholder("postgresql://user:pass@host:5432/db"),
+            resolver.WithHint("Supports {{bindings.xxx}} for secure credential access"),
+        ).
+        AddSelectField("driver", "Driver", []resolver.SelectOption{
+            {Label: "PostgreSQL", Value: "postgres", Icon: "database"},
+            {Label: "MySQL", Value: "mysql", Icon: "database"},
+        }, resolver.WithDefault("postgres")).
+    EndSection().
+    AddSection("Query").Collapsible(true).
+        AddCodeField("query", "SQL Query", "sql",
+            resolver.WithRequired(),
+            resolver.WithHeight(150),
+        ).
+        AddTagsField("args", "Parameters").
+    EndSection().
+    Build()
+
+// Register with schema
+server.RegisterExecutorWithSchema("db-query", &DBQueryExecutor{}, DBQuerySchema)
 ```
 
 ### Field Types
 
-| Type | Behavior |
-|------|----------|
-| `string` | Auto-resolved if contains `{{}}` |
-| `resolver.Binding` | Specify binding name directly (e.g., `"dbConn"` → resolved from bindings) |
-| `resolver.Expr` | Always resolved as expression |
-| `int`, `int64` | Parsed from string or number |
-| `bool` | Parsed from string or bool |
-| `map[string]interface{}` | Resolved recursively |
-| `[]interface{}` | Parsed as slice |
+| Type | UI Widget | Use Case |
+|------|-----------|----------|
+| `text` | Text input | Short text values |
+| `textarea` | Multi-line input | Long text, descriptions |
+| `number` | Number input | Numeric values |
+| `select` | Dropdown | Choose from options |
+| `multiselect` | Multi-select dropdown | Multiple choices |
+| `toggle` | Switch | Boolean values |
+| `slider` | Range slider | Numeric range |
+| `keyvalue` | Key-value editor | Headers, params |
+| `tags` | Chip input | Tags, arrays |
+| `code` | Code editor | SQL, scripts |
+| `json` | JSON editor | Complex objects |
+| `cron` | Cron builder | Schedule expressions |
+| `expression` | Template input | {{}} expressions |
 
-**When to use `resolver.Binding`:**
+### Field Options
+
 ```go
-type Config struct {
-    // Option 1: Use string with expression
-    ConnectionString string `json:"connectionString"`  // "{{bindings.dbConn}}"
-    
-    // Option 2: Use Binding for direct binding name
-    DBConnection resolver.Binding `json:"dbConnection"`  // "dbConn" (no {{}} needed)
+// Required field
+resolver.WithRequired()
+
+// Default value
+resolver.WithDefault("postgres")
+
+// Placeholder text
+resolver.WithPlaceholder("Enter value...")
+
+// Help text
+resolver.WithHint("This field supports {{bindings.xxx}}")
+
+// Sensitive (password field)
+resolver.WithSensitive()
+
+// Validation
+resolver.WithValidation("^[a-z]+$", "Only lowercase letters")
+
+// Min/Max for numbers
+resolver.WithMinMax(0, 100)
+
+// Conditional visibility
+resolver.WithShowIf("authType", "basic")
+resolver.WithShowIfOneOf("method", "POST", "PUT")
+
+// Code/JSON editor height
+resolver.WithHeight(200)
+
+// Textarea rows
+resolver.WithRows(4)
+
+// Number suffix (e.g., "ms", "px")
+resolver.WithSuffix("ms")
+
+// Slider step
+resolver.WithStep(0.1)
+```
+
+### Sections
+
+```go
+AddSection("Advanced Options").
+    Collapsible(true).  // Can be collapsed
+    // Fields...
+EndSection()
+```
+
+### Generated Schema JSON
+
+```json
+{
+  "nodeType": "db-query",
+  "name": "Database Query",
+  "category": "database",
+  "icon": "database",
+  "sections": [
+    {
+      "title": "Connection",
+      "fields": [
+        {
+          "key": "connectionString",
+          "label": "Connection String",
+          "type": "expression",
+          "required": true,
+          "placeholder": "postgresql://user:pass@host:5432/db",
+          "hint": "Supports {{bindings.xxx}} for secure credential access"
+        },
+        {
+          "key": "driver",
+          "label": "Driver",
+          "type": "select",
+          "default": "postgres",
+          "options": [
+            {"label": "PostgreSQL", "value": "postgres", "icon": "database"},
+            {"label": "MySQL", "value": "mysql", "icon": "database"}
+          ]
+        }
+      ]
+    }
+  ]
 }
 ```
 
-Both work - use whichever feels cleaner in your workflow YAML.
+### Struct Tags for Auto-Generated Schemas
 
-### Struct Tags
-
-| Tag | Description |
-|-----|-------------|
-| `json:"fieldName"` | Maps config key to struct field |
-| `default:"value"` | Default value if field is missing |
-
-### Alternative: TypedConfig
-
-For simpler cases, use `TypedConfig` for map-based access:
-
-```go
-tc := resolver.NewTypedConfig(step.Config, resolver)
-
-connectionString := tc.String("connectionString")
-timeout := tc.IntOr("timeout", 30)
-enabled := tc.BoolOr("enabled", true)
-dbConn := tc.BindingString("dbConnection")
-```
+| Tag | Example | Description |
+|-----|---------|-------------|
+| `json` | `json:"fieldName"` | Maps config key to struct field |
+| `default` | `default:"postgres"` | Default value if field is missing |
+| `description` | `description:"SQL query"` | Shown in UI as hint |
+| `placeholder` | `placeholder:"SELECT..."` | Placeholder text in input |
+| `options` | `options:"PostgreSQL:postgres,MySQL:mysql"` | Dropdown options |
+| `sensitive` | `sensitive:"true"` | Marks as password field |
+| `showIf` | `showIf:"authType=basic"` | Conditional visibility |
 
 ### SkillServer Helper
 
