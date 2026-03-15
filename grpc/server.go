@@ -71,6 +71,15 @@ func (s *SkillServer) Execute(ctx context.Context, req *skillpb.ExecuteRequest) 
 		}
 	}
 
+	// Deserialize bindings
+	bindings := make(map[string]interface{})
+	for k, v := range req.Bindings {
+		var val interface{}
+		if err := json.Unmarshal(v, &val); err == nil {
+			bindings[k] = val
+		}
+	}
+
 	// Create step definition
 	step := &executor.StepDefinition{
 		Id:     req.NodeId,
@@ -78,10 +87,11 @@ func (s *SkillServer) Execute(ctx context.Context, req *skillpb.ExecuteRequest) 
 		Config: config,
 	}
 
-	// Create execution context resolver
+	// Create execution context resolver with bindings
 	resolver := &grpcResolver{
 		variables: req.Context.Variables,
 		input:     input,
+		bindings:  bindings,
 	}
 
 	// Execute
@@ -160,9 +170,29 @@ func (s *SkillServer) Serve(port string) error {
 type grpcResolver struct {
 	variables map[string]string
 	input     map[string]interface{}
+	bindings  map[string]interface{}
 }
 
 func (r *grpcResolver) ResolveString(template string) string {
+	// Handle {{bindings.xxx}} templates
+	if len(template) >= 12 && template[:12] == "{{bindings." {
+		// Extract binding name: {{bindings.dbConnection}} -> dbConnection
+		end := len(template) - 2 // Remove }}
+		if end > 12 {
+			key := template[12:end]
+			if val, ok := r.bindings[key]; ok {
+				switch v := val.(type) {
+				case string:
+					return v
+				default:
+					if bytes, err := json.Marshal(v); err == nil {
+						return string(bytes)
+					}
+				}
+			}
+		}
+	}
+
 	if val, ok := r.variables[template]; ok {
 		return val
 	}
@@ -170,7 +200,17 @@ func (r *grpcResolver) ResolveString(template string) string {
 }
 
 func (r *grpcResolver) ResolveMap(input map[string]interface{}) map[string]interface{} {
-	return input
+	// Resolve any {{bindings.xxx}} in string values
+	result := make(map[string]interface{})
+	for k, v := range input {
+		switch val := v.(type) {
+		case string:
+			result[k] = r.ResolveString(val)
+		default:
+			result[k] = val
+		}
+	}
+	return result
 }
 
 func (r *grpcResolver) EvaluateCondition(condition string) bool {
@@ -189,4 +229,15 @@ func (r *grpcResolver) GetStepOutput(stepName string) interface{} {
 
 func (r *grpcResolver) SetStepOutput(stepName string, output interface{}) {
 	// No-op for gRPC skills
+}
+
+// GetBinding returns a binding value by name
+// This is a convenience method for skill executors
+func (r *grpcResolver) GetBinding(name string) interface{} {
+	return r.bindings[name]
+}
+
+// GetBindings returns all bindings
+func (r *grpcResolver) GetBindings() map[string]interface{} {
+	return r.bindings
 }
