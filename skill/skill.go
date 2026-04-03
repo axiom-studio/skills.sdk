@@ -63,6 +63,7 @@ type ToolDefinition struct {
 	Name        string                 `yaml:"name" json:"name"`
 	Description string                 `yaml:"description" json:"description"`
 	Parameters  map[string]interface{} `yaml:"parameters" json:"parameters"` // JSON Schema
+	Config      map[string]interface{} `yaml:"config" json:"config"`         // Tool-specific config (e.g., MCP server config)
 }
 
 // MCPConfig specifies the MCP server configuration
