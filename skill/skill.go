@@ -47,13 +47,30 @@ type SkillMetadata struct {
 
 // SkillSpec defines the skill's capabilities
 type SkillSpec struct {
-	ExecutorType string             `yaml:"executorType"` // "plugin" or "grpc"
+	ExecutorType string             `yaml:"executorType"` // "plugin", "grpc", or "mcp"
 	NodeTypes    []string           `yaml:"nodeTypes"`
+	Tools        []ToolDefinition   `yaml:"tools,omitempty"`        // AI-callable tools
+	MCP          MCPConfig          `yaml:"mcp,omitempty"`          // MCP server configuration
 	Plugin       PluginConfig       `yaml:"plugin,omitempty"`
 	GRPC         GRPCConfig         `yaml:"grpc,omitempty"`
 	Dependencies SkillDependencies  `yaml:"dependencies"`
 	Permissions  []string           `yaml:"permissions"`
 	Requirements []SkillRequirement `yaml:"requirements"`
+}
+
+// ToolDefinition defines an AI-callable tool provided by a skill
+type ToolDefinition struct {
+	Name        string                 `yaml:"name" json:"name"`
+	Description string                 `yaml:"description" json:"description"`
+	Parameters  map[string]interface{} `yaml:"parameters" json:"parameters"` // JSON Schema
+}
+
+// MCPConfig specifies the MCP server configuration
+type MCPConfig struct {
+	Command string            `yaml:"command"`           // Command to run (e.g., "npx", "uvx")
+	Args    []string          `yaml:"args"`              // Command arguments
+	Env     map[string]string `yaml:"env,omitempty"`     // Environment variables
+	Timeout int               `yaml:"timeout,omitempty"` // Connection timeout in seconds (default: 300)
 }
 
 // PluginConfig specifies the plugin binary locations
@@ -96,4 +113,5 @@ type LoadedPlugin struct {
 	Manifest  *SkillManifest
 	Plugin    SkillPlugin
 	Executors []executor.StepExecutor
+	Tools     []ToolDefinition // AI-callable tools from this skill
 }
