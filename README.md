@@ -24,6 +24,21 @@ Skills extend Axiom with custom node types. Each skill is a standalone gRPC serv
 └─────────────────┘               └─────────────────┘
 ```
 
+Skills are distributed as **pre-built binaries**. Hermes (the skill manager) does not build skills at runtime. Instead, it downloads or loads binaries that you provide. This means:
+
+- **Faster startup**: No compilation delay when installing or updating skills
+- **Reproducible builds**: Binaries are built once in CI, not on every user's machine
+- **No build dependencies**: Users don't need Go, Rust, or any toolchain installed
+- **Smaller attack surface**: No compiler or build tools required on the target system
+
+The binary distribution flow:
+
+```
+Developer CI ──build──► binaries/ ──commit/publish──► Skill Repo / Release
+                                                          │
+Hermes ◄──download/load── skill.yaml (binary paths or URLs)
+```
+
 ## Quick Start
 
 ### 1. Create skill.yaml
@@ -52,8 +67,8 @@ spec:
   grpc:
     address: "localhost:50051"
     binary:
-      linux-amd64: bin/my-skill-linux-amd64
-      darwin-arm64: bin/my-skill-darwin-arm64
+      linux-amd64: binaries/my-skill-linux-amd64
+      darwin-arm64: binaries/my-skill-darwin-arm64
 ```
 
 ### 2. Implement the gRPC Server (Go)
@@ -98,15 +113,192 @@ func main() {
 }
 ```
 
-### 3. Build and Run
+### 3. Build Binaries
+
+Skills must ship pre-built binaries. Build for each target platform:
 
 ```bash
-# Build
-go build -o bin/my-skill .
+# Linux amd64
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o binaries/my-skill-linux-amd64 .
 
-# Run
-./bin/my-skill
+# Linux arm64
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o binaries/my-skill-linux-arm64 .
+
+# macOS arm64 (Apple Silicon)
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o binaries/my-skill-darwin-arm64 .
 ```
+
+See [Building Binaries](#building-binaries) for full details and CI automation.
+
+### 4. Run
+
+```bash
+./binaries/my-skill-linux-amd64
+```
+
+## Binary Distribution
+
+Skills **must** provide pre-built binaries. Hermes no longer builds skills at runtime. There are two ways to distribute binaries:
+
+### Method 1: Git-Tracked Binaries
+
+Commit binaries directly to your skill repository. Hermes loads them from the local filesystem.
+
+```yaml
+spec:
+  grpc:
+    binary:
+      linux-amd64: binaries/my-skill-linux-amd64
+      darwin-arm64: binaries/my-skill-darwin-arm64
+```
+
+**Pros**: Simple, no external hosting needed, works offline.
+**Cons**: Increases repo size, requires `git lfs` for large binaries.
+
+**Setup with Git LFS** (recommended for binaries over 50MB):
+
+```bash
+git lfs install
+git lfs track "binaries/*"
+echo "binaries/*" >> .gitattributes
+git add .gitattributes
+```
+
+### Method 2: Remote Binaries
+
+Host binaries externally and provide download URLs. Hermes downloads them on first use.
+
+```yaml
+spec:
+  grpc:
+    binaryUrls:
+      linux-amd64: https://releases.example.com/my-skill/v1.0/my-skill-linux-amd64
+      linux-arm64: https://releases.example.com/my-skill/v1.0/my-skill-linux-arm64
+      darwin-arm64: https://releases.example.com/my-skill/v1.0/my-skill-darwin-arm64
+```
+
+**Pros**: Keeps repo small, easy versioning via URL paths.
+**Cons**: Requires internet access, depends on external hosting.
+
+**Common hosting options**:
+- GitHub Releases (attach binaries to releases)
+- AWS S3 / CloudFront
+- Cloudflare R2
+- Any static file server
+
+### Binary Naming Convention
+
+Binaries should follow the pattern: `<skill-id>-<os>-<arch>`
+
+| Platform | OS | Arch | Binary Name Example |
+|----------|----|------|---------------------|
+| Linux x86_64 | linux | amd64 | `my-skill-linux-amd64` |
+| Linux ARM64 | linux | arm64 | `my-skill-linux-arm64` |
+| macOS Apple Silicon | darwin | arm64 | `my-skill-darwin-arm64` |
+
+### Supported Platforms
+
+| Platform ID | OS | Architecture |
+|-------------|----|--------------|
+| `linux-amd64` | Linux | x86_64 |
+| `linux-arm64` | Linux | ARM64 |
+| `darwin-arm64` | macOS | ARM64 (Apple Silicon) |
+
+## Building Binaries
+
+### Manual Build Commands
+
+Build static binaries for all supported platforms:
+
+```bash
+# Linux amd64
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o binaries/my-skill-linux-amd64 .
+
+# Linux arm64
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o binaries/my-skill-linux-arm64 .
+
+# macOS arm64
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o binaries/my-skill-darwin-arm64 .
+```
+
+Key flags:
+- `CGO_ENABLED=0`: Produces fully static binaries with no C dependencies
+- `GOOS`/`GOARCH`: Cross-compilation targets
+- `-o binaries/...`: Output to the `binaries/` directory
+
+### Build All Platforms (One Command)
+
+```bash
+#!/bin/bash
+set -e
+
+SKILL_ID="my-skill"
+mkdir -p binaries
+
+platforms=(
+  "linux/amd64"
+  "linux/arm64"
+  "darwin/arm64"
+)
+
+for platform in "${platforms[@]}"; do
+  GOOS="${platform%/*}"
+  GOARCH="${platform#*/}"
+  echo "Building ${SKILL_ID}-${GOOS}-${GOARCH}..."
+  CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build -o "binaries/${SKILL_ID}-${GOOS}-${GOARCH}" .
+done
+
+echo "All binaries built in binaries/"
+```
+
+### CI Workflow
+
+Use GitHub Actions to automate binary builds on every release. A reference workflow is available at `.github/workflows/build-binaries.yml`:
+
+```yaml
+name: Build Skill Binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+          - os: darwin
+            arch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          go build -o binaries/my-skill-${{ matrix.os }}-${{ matrix.arch }} .
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: binaries/my-skill-${{ matrix.os }}-${{ matrix.arch }}
+```
+
+This workflow builds binaries for all platforms and attaches them to GitHub Releases, which you can then reference via `binaryUrls` in your `skill.yaml`.
 
 ## gRPC Service Definition
 
@@ -386,7 +578,7 @@ func (s *MyServer) Health(ctx context.Context, req *skillpb.HealthRequest) (*ski
 
 ### With Hermes (Skill Manager)
 
-Hermes manages skill lifecycle in Kubernetes:
+Hermes manages the skill lifecycle in Kubernetes. It loads pre-built binaries from your repository or downloads them from remote URLs.
 
 ```yaml
 # values.yaml for atlas chart
@@ -399,13 +591,15 @@ hermes:
       port: 50051
 ```
 
+Hermes reads the `skill.yaml` from the repository, locates the binaries via the `binary` or `binaryUrls` fields, and launches the skill process. No build step occurs at runtime.
+
 ### Standalone
 
 Run skills as separate processes:
 
 ```bash
 # Start skill on port 50051
-SKILL_PORT=50051 ./bin/my-skill
+SKILL_PORT=50051 ./binaries/my-skill-linux-amd64
 
 # Configure cortex to connect
 # In skill.yaml: grpc.address: "localhost:50051"
@@ -426,6 +620,7 @@ If you have existing Go plugin skills, migrate to gRPC:
 2. Replace plugin binary with gRPC server
 3. Update `skill.yaml` with gRPC config
 4. Implement the gRPC `SkillService` interface
+5. **Build and ship pre-built binaries** (Hermes no longer builds at runtime)
 
 ## License
 
