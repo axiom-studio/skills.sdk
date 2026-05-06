@@ -49,8 +49,8 @@ type SkillMetadata struct {
 type SkillSpec struct {
 	ExecutorType string             `yaml:"executorType"` // "plugin", "grpc", or "mcp"
 	NodeTypes    []string           `yaml:"nodeTypes"`
-	Tools        []ToolDefinition   `yaml:"tools,omitempty"`        // AI-callable tools
-	MCP          MCPConfig          `yaml:"mcp,omitempty"`          // MCP server configuration
+	Tools        []ToolDefinition   `yaml:"tools,omitempty"` // AI-callable tools
+	MCP          MCPConfig          `yaml:"mcp,omitempty"`   // MCP server configuration
 	Plugin       PluginConfig       `yaml:"plugin,omitempty"`
 	GRPC         GRPCConfig         `yaml:"grpc,omitempty"`
 	Dependencies SkillDependencies  `yaml:"dependencies"`
@@ -81,9 +81,10 @@ type PluginConfig struct {
 
 // GRPCConfig specifies the gRPC skill configuration
 type GRPCConfig struct {
-	Address string            `yaml:"address,omitempty"` // gRPC address (e.g., "localhost:50051")
-	Binary  map[string]string `yaml:"binary,omitempty"`  // platform -> path to skill binary
-	Port    int               `yaml:"port,omitempty"`    // Port to run the skill on (if starting process)
+	Address    string            `yaml:"address,omitempty"`    // gRPC address (e.g., "localhost:50051")
+	Binary     map[string]string `yaml:"binary,omitempty"`     // platform -> path to local skill binary
+	BinaryURLs map[string]string `yaml:"binaryUrls,omitempty"` // platform -> URL to download pre-built binary
+	Port       int               `yaml:"port,omitempty"`       // Port to run the skill on (if starting process)
 }
 
 // SkillDependencies defines what the skill needs from Axiom
