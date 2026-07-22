@@ -16,8 +16,8 @@ Skills extend Axiom with custom node types. Each skill is a standalone gRPC serv
 ```
 ┌─────────────────┐     gRPC      ┌─────────────────┐
 │                 │◄──────────────►│  skill-database │
-│     Cortex      │               │  (port 50051)   │
-│   (Axiom Core)  │               └─────────────────┘
+│   Installing    │               │  (port 50051)   │
+│    runtime      │               └─────────────────┘
 │                 │     gRPC      ┌─────────────────┐
 │                 │◄──────────────►│   skill-k8s     │
 │                 │               │  (port 50052)   │
@@ -345,7 +345,7 @@ go get github.com/axiom-studio/skills.sdk@latest
 Define your node config as a typed struct. The SDK automatically:
 
 1. **Resolves expressions** - `{{bindings.xxx}}` in string fields are auto-resolved
-2. **Generates schemas** - Atlas can query `GetNodeSchema` to show the config UI
+2. **Generates schemas** - installing runtimes can query `GetNodeSchema` to render configuration
 
 ```go
 import "github.com/axiom-studio/skills.sdk/resolver"
@@ -581,10 +581,10 @@ func (s *MyServer) Health(ctx context.Context, req *skillpb.HealthRequest) (*ski
 Hermes manages the skill lifecycle in Kubernetes. It loads pre-built binaries from your repository or downloads them from remote URLs.
 
 ```yaml
-# values.yaml for atlas chart
-hermes:
+# values.yaml for a Skill lifecycle controller
+skills:
   enabled: true
-  skills:
+  installations:
     - name: skill-database
       repository: https://github.com/axiom-studio/skills.skill-database
       version: main
@@ -601,7 +601,7 @@ Run skills as separate processes:
 # Start skill on port 50051
 SKILL_PORT=50051 ./binaries/my-skill-linux-amd64
 
-# Configure cortex to connect
+# Configure the installing runtime to connect
 # In skill.yaml: grpc.address: "localhost:50051"
 ```
 
