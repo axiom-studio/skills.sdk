@@ -624,4 +624,4 @@ If you have existing Go plugin skills, migrate to gRPC:
 
 ## License
 
-Proprietary - All rights reserved.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
