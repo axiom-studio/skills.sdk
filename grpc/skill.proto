@@ -4,6 +4,8 @@ package axiom.skill.v1;
 
 option go_package = "github.com/axiom-studio/skills.sdk/grpc/skillpb";
 
+import "google/protobuf/struct.proto";
+
 // SkillService is the gRPC service that external Skills implement.
 // An installing runtime calls this service to execute typed actions.
 service SkillService {
@@ -49,6 +51,10 @@ message ExecutionContext {
     // identity (never from action arguments). The SDK scopes operator config
     // to it.
     string tenant_id = 5;
+    // Effective operator config of the Skill for tenant_id (declared fields
+    // only, secrets included, host-audience fields never), resolved by the
+    // platform for this call. Unset means the Skill runs on declared defaults.
+    google.protobuf.Struct config = 6;
 }
 
 // ExecuteResponse is returned by the skill
@@ -96,6 +102,9 @@ message HealthRequest {
     // Tenant whose effective config the check runs against; empty means the
     // global effective config.
     string config_tenant_id = 2;
+    // Effective config the check runs against (same shape as
+    // ExecutionContext.config). Unset means declared defaults.
+    google.protobuf.Struct config_values = 3;
 }
 
 // HealthResponse
@@ -109,18 +118,13 @@ message HealthResponse {
 
 // ConfigStatus reports a Skill's operator config.
 message ConfigStatus {
-    // "pending" until the platform's config (and secrets) have loaded; the
-    // Skill then runs on declared defaults. "loaded" afterwards.
-    string config_state = 1;
     // Declared config section as JSON: {"scopes":[...],"fields":[...]} using
     // the shared field schema.
-    bytes schema = 2;
-    // Version of the loaded config entry; 0 while pending.
-    uint64 version = 3;
-    // Last load problem, if any (never contains secret values).
-    string detail = 4;
+    bytes schema = 1;
+    // Whether the Skill declares a config check (WithConfigCheck).
+    bool has_config_check = 2;
     // Result of the config check; set only when requested and declared.
-    ConfigCheckResult config_check = 5;
+    ConfigCheckResult config_check = 3;
 }
 
 // ConfigCheckResult is the outcome of a Skill's config check.

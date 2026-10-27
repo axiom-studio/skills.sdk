@@ -253,12 +253,8 @@ func (s *SkillServer) Health(ctx context.Context, req *skillpb.HealthRequest) (*
 	if s.config == nil {
 		return resp, nil
 	}
-	status := s.config.Status()
 	resp.Config = &skillpb.ConfigStatus{
-		ConfigState: string(status.State),
-		Schema:      s.config.Schema().JSON(),
-		Version:     status.Version,
-		Detail:      status.Detail,
+		Schema: s.config.Schema().JSON(),
 	}
 	if req.GetConfigCheck() {
 		if result, ok := s.config.Check(ctx, req.GetConfigTenantId()); ok {

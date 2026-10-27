@@ -9,6 +9,7 @@ package skillpb
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -121,7 +122,11 @@ type ExecutionContext struct {
 	// Authenticated tenant of the call, set by the platform from the caller's
 	// identity (never from action arguments). The SDK scopes operator config
 	// to it.
-	TenantId      string `protobuf:"bytes,5,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	TenantId string `protobuf:"bytes,5,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
+	// Effective operator config of the Skill for tenant_id (declared fields
+	// only, secrets included, host-audience fields never), resolved by the
+	// platform for this call. Unset means the Skill runs on declared defaults.
+	Config        *structpb.Struct `protobuf:"bytes,6,opt,name=config,proto3" json:"config,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -189,6 +194,13 @@ func (x *ExecutionContext) GetTenantId() string {
 		return x.TenantId
 	}
 	return ""
+}
+
+func (x *ExecutionContext) GetConfig() *structpb.Struct {
+	if x != nil {
+		return x.Config
+	}
+	return nil
 }
 
 // ExecuteResponse is returned by the skill
@@ -497,8 +509,11 @@ type HealthRequest struct {
 	// Tenant whose effective config the check runs against; empty means the
 	// global effective config.
 	ConfigTenantId string `protobuf:"bytes,2,opt,name=config_tenant_id,json=configTenantId,proto3" json:"config_tenant_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Effective config the check runs against (same shape as
+	// ExecutionContext.config). Unset means declared defaults.
+	ConfigValues  *structpb.Struct `protobuf:"bytes,3,opt,name=config_values,json=configValues,proto3" json:"config_values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *HealthRequest) Reset() {
@@ -543,6 +558,13 @@ func (x *HealthRequest) GetConfigTenantId() string {
 		return x.ConfigTenantId
 	}
 	return ""
+}
+
+func (x *HealthRequest) GetConfigValues() *structpb.Struct {
+	if x != nil {
+		return x.ConfigValues
+	}
+	return nil
 }
 
 // HealthResponse
@@ -618,18 +640,13 @@ func (x *HealthResponse) GetConfig() *ConfigStatus {
 // ConfigStatus reports a Skill's operator config.
 type ConfigStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// "pending" until the platform's config (and secrets) have loaded; the
-	// Skill then runs on declared defaults. "loaded" afterwards.
-	ConfigState string `protobuf:"bytes,1,opt,name=config_state,json=configState,proto3" json:"config_state,omitempty"`
 	// Declared config section as JSON: {"scopes":[...],"fields":[...]} using
 	// the shared field schema.
-	Schema []byte `protobuf:"bytes,2,opt,name=schema,proto3" json:"schema,omitempty"`
-	// Version of the loaded config entry; 0 while pending.
-	Version uint64 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
-	// Last load problem, if any (never contains secret values).
-	Detail string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
+	Schema []byte `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
+	// Whether the Skill declares a config check (WithConfigCheck).
+	HasConfigCheck bool `protobuf:"varint,2,opt,name=has_config_check,json=hasConfigCheck,proto3" json:"has_config_check,omitempty"`
 	// Result of the config check; set only when requested and declared.
-	ConfigCheck   *ConfigCheckResult `protobuf:"bytes,5,opt,name=config_check,json=configCheck,proto3" json:"config_check,omitempty"`
+	ConfigCheck   *ConfigCheckResult `protobuf:"bytes,3,opt,name=config_check,json=configCheck,proto3" json:"config_check,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -664,13 +681,6 @@ func (*ConfigStatus) Descriptor() ([]byte, []int) {
 	return file_skill_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *ConfigStatus) GetConfigState() string {
-	if x != nil {
-		return x.ConfigState
-	}
-	return ""
-}
-
 func (x *ConfigStatus) GetSchema() []byte {
 	if x != nil {
 		return x.Schema
@@ -678,18 +688,11 @@ func (x *ConfigStatus) GetSchema() []byte {
 	return nil
 }
 
-func (x *ConfigStatus) GetVersion() uint64 {
+func (x *ConfigStatus) GetHasConfigCheck() bool {
 	if x != nil {
-		return x.Version
+		return x.HasConfigCheck
 	}
-	return 0
-}
-
-func (x *ConfigStatus) GetDetail() string {
-	if x != nil {
-		return x.Detail
-	}
-	return ""
+	return false
 }
 
 func (x *ConfigStatus) GetConfigCheck() *ConfigCheckResult {
@@ -825,7 +828,7 @@ var File_skill_proto protoreflect.FileDescriptor
 
 const file_skill_proto_rawDesc = "" +
 	"\n" +
-	"\vskill.proto\x12\x0eaxiom.skill.v1\"\x83\x04\n" +
+	"\vskill.proto\x12\x0eaxiom.skill.v1\x1a\x1cgoogle/protobuf/struct.proto\"\x83\x04\n" +
 	"\x0eExecuteRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1b\n" +
 	"\tnode_type\x18\x02 \x01(\tR\bnodeType\x12B\n" +
@@ -842,13 +845,14 @@ const file_skill_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\x1a;\n" +
 	"\rBindingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x8c\x02\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\xbd\x02\n" +
 	"\x10ExecutionContext\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1c\n" +
 	"\tnamespace\x18\x03 \x01(\tR\tnamespace\x12M\n" +
 	"\tvariables\x18\x04 \x03(\v2/.axiom.skill.v1.ExecutionContext.VariablesEntryR\tvariables\x12\x1b\n" +
-	"\ttenant_id\x18\x05 \x01(\tR\btenantId\x1a<\n" +
+	"\ttenant_id\x18\x05 \x01(\tR\btenantId\x12/\n" +
+	"\x06config\x18\x06 \x01(\v2\x17.google.protobuf.StructR\x06config\x1a<\n" +
 	"\x0eVariablesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdb\x01\n" +
@@ -873,21 +877,20 @@ const file_skill_proto_rawDesc = "" +
 	"\x14GetNodeSchemaRequest\x12\x1b\n" +
 	"\tnode_type\x18\x01 \x01(\tR\bnodeType\"/\n" +
 	"\x15GetNodeSchemaResponse\x12\x16\n" +
-	"\x06schema\x18\x01 \x01(\fR\x06schema\"\\\n" +
+	"\x06schema\x18\x01 \x01(\fR\x06schema\"\x9a\x01\n" +
 	"\rHealthRequest\x12!\n" +
 	"\fconfig_check\x18\x01 \x01(\bR\vconfigCheck\x12(\n" +
-	"\x10config_tenant_id\x18\x02 \x01(\tR\x0econfigTenantId\"\x95\x01\n" +
+	"\x10config_tenant_id\x18\x02 \x01(\tR\x0econfigTenantId\x12<\n" +
+	"\rconfig_values\x18\x03 \x01(\v2\x17.google.protobuf.StructR\fconfigValues\"\x95\x01\n" +
 	"\x0eHealthResponse\x12\x18\n" +
 	"\ahealthy\x18\x01 \x01(\bR\ahealthy\x12\x19\n" +
 	"\bskill_id\x18\x02 \x01(\tR\askillId\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x124\n" +
-	"\x06config\x18\x04 \x01(\v2\x1c.axiom.skill.v1.ConfigStatusR\x06config\"\xc1\x01\n" +
-	"\fConfigStatus\x12!\n" +
-	"\fconfig_state\x18\x01 \x01(\tR\vconfigState\x12\x16\n" +
-	"\x06schema\x18\x02 \x01(\fR\x06schema\x12\x18\n" +
-	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x16\n" +
-	"\x06detail\x18\x04 \x01(\tR\x06detail\x12D\n" +
-	"\fconfig_check\x18\x05 \x01(\v2!.axiom.skill.v1.ConfigCheckResultR\vconfigCheck\"`\n" +
+	"\x06config\x18\x04 \x01(\v2\x1c.axiom.skill.v1.ConfigStatusR\x06config\"\x96\x01\n" +
+	"\fConfigStatus\x12\x16\n" +
+	"\x06schema\x18\x01 \x01(\fR\x06schema\x12(\n" +
+	"\x10has_config_check\x18\x02 \x01(\bR\x0ehasConfigCheck\x12D\n" +
+	"\fconfig_check\x18\x03 \x01(\v2!.axiom.skill.v1.ConfigCheckResultR\vconfigCheck\"`\n" +
 	"\x11ConfigCheckResult\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x123\n" +
 	"\x06checks\x18\x02 \x03(\v2\x1b.axiom.skill.v1.ConfigCheckR\x06checks\"c\n" +
@@ -935,6 +938,7 @@ var file_skill_proto_goTypes = []any{
 	nil,                           // 16: axiom.skill.v1.ExecutionContext.VariablesEntry
 	nil,                           // 17: axiom.skill.v1.ExecuteResponse.OutputEntry
 	nil,                           // 18: axiom.skill.v1.Error.DetailsEntry
+	(*structpb.Struct)(nil),       // 19: google.protobuf.Struct
 }
 var file_skill_proto_depIdxs = []int32{
 	13, // 0: axiom.skill.v1.ExecuteRequest.config:type_name -> axiom.skill.v1.ExecuteRequest.ConfigEntry
@@ -942,25 +946,27 @@ var file_skill_proto_depIdxs = []int32{
 	1,  // 2: axiom.skill.v1.ExecuteRequest.context:type_name -> axiom.skill.v1.ExecutionContext
 	15, // 3: axiom.skill.v1.ExecuteRequest.bindings:type_name -> axiom.skill.v1.ExecuteRequest.BindingsEntry
 	16, // 4: axiom.skill.v1.ExecutionContext.variables:type_name -> axiom.skill.v1.ExecutionContext.VariablesEntry
-	17, // 5: axiom.skill.v1.ExecuteResponse.output:type_name -> axiom.skill.v1.ExecuteResponse.OutputEntry
-	3,  // 6: axiom.skill.v1.ExecuteResponse.error:type_name -> axiom.skill.v1.Error
-	18, // 7: axiom.skill.v1.Error.details:type_name -> axiom.skill.v1.Error.DetailsEntry
-	10, // 8: axiom.skill.v1.HealthResponse.config:type_name -> axiom.skill.v1.ConfigStatus
-	11, // 9: axiom.skill.v1.ConfigStatus.config_check:type_name -> axiom.skill.v1.ConfigCheckResult
-	12, // 10: axiom.skill.v1.ConfigCheckResult.checks:type_name -> axiom.skill.v1.ConfigCheck
-	0,  // 11: axiom.skill.v1.SkillService.Execute:input_type -> axiom.skill.v1.ExecuteRequest
-	4,  // 12: axiom.skill.v1.SkillService.GetNodeTypes:input_type -> axiom.skill.v1.GetNodeTypesRequest
-	6,  // 13: axiom.skill.v1.SkillService.GetNodeSchema:input_type -> axiom.skill.v1.GetNodeSchemaRequest
-	8,  // 14: axiom.skill.v1.SkillService.Health:input_type -> axiom.skill.v1.HealthRequest
-	2,  // 15: axiom.skill.v1.SkillService.Execute:output_type -> axiom.skill.v1.ExecuteResponse
-	5,  // 16: axiom.skill.v1.SkillService.GetNodeTypes:output_type -> axiom.skill.v1.GetNodeTypesResponse
-	7,  // 17: axiom.skill.v1.SkillService.GetNodeSchema:output_type -> axiom.skill.v1.GetNodeSchemaResponse
-	9,  // 18: axiom.skill.v1.SkillService.Health:output_type -> axiom.skill.v1.HealthResponse
-	15, // [15:19] is the sub-list for method output_type
-	11, // [11:15] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	19, // 5: axiom.skill.v1.ExecutionContext.config:type_name -> google.protobuf.Struct
+	17, // 6: axiom.skill.v1.ExecuteResponse.output:type_name -> axiom.skill.v1.ExecuteResponse.OutputEntry
+	3,  // 7: axiom.skill.v1.ExecuteResponse.error:type_name -> axiom.skill.v1.Error
+	18, // 8: axiom.skill.v1.Error.details:type_name -> axiom.skill.v1.Error.DetailsEntry
+	19, // 9: axiom.skill.v1.HealthRequest.config_values:type_name -> google.protobuf.Struct
+	10, // 10: axiom.skill.v1.HealthResponse.config:type_name -> axiom.skill.v1.ConfigStatus
+	11, // 11: axiom.skill.v1.ConfigStatus.config_check:type_name -> axiom.skill.v1.ConfigCheckResult
+	12, // 12: axiom.skill.v1.ConfigCheckResult.checks:type_name -> axiom.skill.v1.ConfigCheck
+	0,  // 13: axiom.skill.v1.SkillService.Execute:input_type -> axiom.skill.v1.ExecuteRequest
+	4,  // 14: axiom.skill.v1.SkillService.GetNodeTypes:input_type -> axiom.skill.v1.GetNodeTypesRequest
+	6,  // 15: axiom.skill.v1.SkillService.GetNodeSchema:input_type -> axiom.skill.v1.GetNodeSchemaRequest
+	8,  // 16: axiom.skill.v1.SkillService.Health:input_type -> axiom.skill.v1.HealthRequest
+	2,  // 17: axiom.skill.v1.SkillService.Execute:output_type -> axiom.skill.v1.ExecuteResponse
+	5,  // 18: axiom.skill.v1.SkillService.GetNodeTypes:output_type -> axiom.skill.v1.GetNodeTypesResponse
+	7,  // 19: axiom.skill.v1.SkillService.GetNodeSchema:output_type -> axiom.skill.v1.GetNodeSchemaResponse
+	9,  // 20: axiom.skill.v1.SkillService.Health:output_type -> axiom.skill.v1.HealthResponse
+	17, // [17:21] is the sub-list for method output_type
+	13, // [13:17] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_skill_proto_init() }
