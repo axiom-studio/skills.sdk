@@ -120,8 +120,8 @@ type ExecutionContext struct {
 	Namespace string                 `protobuf:"bytes,3,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Variables map[string]string      `protobuf:"bytes,4,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Authenticated tenant of the call, set by the platform from the caller's
-	// identity (never from action arguments). The SDK scopes operator config
-	// to it.
+	// identity (never from action arguments). config below is resolved for
+	// it, and the SDK keys its decoded-config cache by it.
 	TenantId string `protobuf:"bytes,5,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"`
 	// Effective operator config of the Skill for tenant_id (declared fields
 	// only, secrets included, host-audience fields never), resolved by the
@@ -517,8 +517,8 @@ type HealthRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Run the Skill's config check (WithConfigCheck) and include the result.
 	ConfigCheck bool `protobuf:"varint,1,opt,name=config_check,json=configCheck,proto3" json:"config_check,omitempty"`
-	// Tenant whose effective config the check runs against; empty means the
-	// global effective config.
+	// Tenant config_values were resolved for (informational; empty means the
+	// global effective config).
 	ConfigTenantId string `protobuf:"bytes,2,opt,name=config_tenant_id,json=configTenantId,proto3" json:"config_tenant_id,omitempty"`
 	// Effective config the check runs against (same shape as
 	// ExecutionContext.config). Unset means declared defaults.

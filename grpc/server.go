@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -33,16 +32,17 @@ type SkillServer struct {
 type Option func(*serverOptions)
 
 type serverOptions struct {
-	newConfig func(skillID string, check any) (config.Runtime, error)
+	newConfig func(check any) (config.Runtime, error)
 	check     any
 }
 
 // WithConfig declares the Skill's operator config as the tagged struct T (see
-// package config). The SDK derives the shared field schema from T, loads the
-// platform's values on Serve, and serves them to executors via config.From.
+// package config). The SDK derives the shared field schema from T, reports it
+// over Health, and decodes the config the platform sends with each Execute
+// call for executors to read via config.From.
 func WithConfig[T any](opts ...config.Option) Option {
 	return func(o *serverOptions) {
-		o.newConfig = func(skillID string, check any) (config.Runtime, error) {
+		o.newConfig = func(check any) (config.Runtime, error) {
 			var fn func(context.Context, T) config.CheckResult
 			if check != nil {
 				var ok bool
@@ -50,14 +50,14 @@ func WithConfig[T any](opts ...config.Option) Option {
 					return nil, fmt.Errorf("config: WithConfigCheck takes %T, want func(context.Context, %T) config.CheckResult", check, *new(T))
 				}
 			}
-			return config.NewStore[T](skillID, fn, opts...)
+			return config.NewSpec[T](fn, opts...)
 		}
 	}
 }
 
 // WithConfigCheck declares a check of the Skill's config (for example, that an
-// API key works). The platform runs it through the Health RPC. T must be the
-// type given to WithConfig.
+// API key works). The platform runs it through the Health RPC against the
+// config values it sends. T must be the type given to WithConfig.
 func WithConfigCheck[T any](check func(ctx context.Context, cfg T) config.CheckResult) Option {
 	return func(o *serverOptions) { o.check = check }
 }
@@ -77,7 +77,7 @@ func NewSkillServer(skillID, version string, opts ...Option) *SkillServer {
 	}
 	switch {
 	case o.newConfig != nil:
-		rt, err := o.newConfig(skillID, o.check)
+		rt, err := o.newConfig(o.check)
 		if err != nil {
 			panic(err)
 		}
@@ -118,11 +118,11 @@ func (s *SkillServer) Execute(ctx context.Context, req *skillpb.ExecuteRequest) 
 	}
 
 	// Deserialize config and input
-	config := make(map[string]interface{})
+	stepConfig := make(map[string]interface{})
 	for k, v := range req.Config {
 		var val interface{}
 		if err := json.Unmarshal(v, &val); err == nil {
-			config[k] = val
+			stepConfig[k] = val
 		}
 	}
 
@@ -147,7 +147,7 @@ func (s *SkillServer) Execute(ctx context.Context, req *skillpb.ExecuteRequest) 
 	step := &executor.StepDefinition{
 		Id:     req.NodeId,
 		Type:   req.NodeType,
-		Config: config,
+		Config: stepConfig,
 	}
 
 	// Create resolver using the shared implementation
@@ -161,10 +161,22 @@ func (s *SkillServer) Execute(ctx context.Context, req *skillpb.ExecuteRequest) 
 		Self:      selfContext,
 	})
 
-	// Scope operator config to the call's authenticated tenant, which the
-	// platform sets in the execution context, never from action arguments.
+	// Operator config comes only from the execution context, which the
+	// platform resolves for the call's authenticated tenant; never from
+	// action arguments or variables.
 	if s.config != nil {
-		ctx = s.config.Bind(ctx, req.GetContext().GetTenantId())
+		ec := req.GetContext()
+		bound, err := s.config.Bind(ctx, config.Call{
+			TenantID: ec.GetTenantId(),
+			Version:  ec.GetConfigVersion(),
+			Values:   ec.GetConfig(),
+		})
+		if err != nil {
+			return &skillpb.ExecuteResponse{
+				Error: &skillpb.Error{Message: err.Error(), Type: "config"},
+			}, nil
+		}
+		ctx = bound
 	}
 
 	// Execute
@@ -254,10 +266,11 @@ func (s *SkillServer) Health(ctx context.Context, req *skillpb.HealthRequest) (*
 		return resp, nil
 	}
 	resp.Config = &skillpb.ConfigStatus{
-		Schema: s.config.Schema().JSON(),
+		Schema:         s.config.Schema().JSON(),
+		HasConfigCheck: s.config.HasCheck(),
 	}
 	if req.GetConfigCheck() {
-		if result, ok := s.config.Check(ctx, req.GetConfigTenantId()); ok {
+		if result, ok := s.config.Check(ctx, req.GetConfigValues()); ok {
 			check := &skillpb.ConfigCheckResult{Status: string(result.Status)}
 			for _, c := range result.Checks {
 				check.Checks = append(check.Checks, &skillpb.ConfigCheck{
@@ -268,19 +281,6 @@ func (s *SkillServer) Health(ctx context.Context, req *skillpb.HealthRequest) (*
 		}
 	}
 	return resp, nil
-}
-
-// StartConfig loads and watches the platform's config in the background until
-// ctx ends. Serve calls it; call it directly only when serving another way.
-func (s *SkillServer) StartConfig(ctx context.Context) {
-	if s.config == nil {
-		return
-	}
-	go func() {
-		if err := s.config.Run(ctx, config.SourceFromEnv()); err != nil {
-			log.Printf("skill config: %v", err)
-		}
-	}()
 }
 
 // Serve starts the Skill's gRPC endpoint. Discovery and lifecycle ownership
@@ -294,16 +294,11 @@ func (s *SkillServer) Serve(port string) error {
 	grpcServer := grpc.NewServer()
 	skillpb.RegisterSkillServiceServer(grpcServer, s)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	s.StartConfig(ctx)
-
 	// Handle graceful shutdown
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 		<-sigCh
-		cancel()
 		grpcServer.GracefulStop()
 	}()
 

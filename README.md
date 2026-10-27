@@ -555,8 +555,9 @@ func main() {
 
 A Skill declares its operator settings (global, optionally overridden per
 tenant) as a tagged struct. The SDK derives the shared field schema from the
-tags, reports it over `Health`, loads the platform's values, and serves the
-effective config for each call's authenticated tenant.
+tags and reports it over `Health`. The platform resolves the effective config
+for each call's authenticated tenant and sends it with the call; the SDK
+decodes it into the struct.
 
 ```go
 type Config struct {
@@ -573,7 +574,7 @@ s := grpc.NewSkillServer("skill-browser", "1.0.0",
 )
 
 func (e *SearchExecutor) Execute(ctx context.Context, step *executor.StepDefinition, r executor.TemplateResolver) (*executor.StepResult, error) {
-    cfg := config.From[Config](ctx) // defaults, then global, then this call's tenant
+    cfg := config.From[Config](ctx) // this call's config, declared defaults for missing keys
     key := cfg.TavilyAPIKey.Reveal()
     ...
 }
@@ -588,12 +589,17 @@ declarations panic in `NewSkillServer`.
 `config.Secret` never prints, logs or marshals its value; call `Reveal()`.
 Host-audience fields appear in the schema but are never delivered to the Skill.
 
-`Serve` loads config from the JetStream KV bucket `skill-config` (key: Skill
-ID) and fetches secret values from Sentinel when their version changes. The
-platform sets `AXIOM_SKILL_CONFIG_NATS_URL`, `AXIOM_SKILL_CONFIG_NATS_CREDS`,
-optionally `AXIOM_SKILL_CONFIG_NATS_DOMAIN`, `AXIOM_SKILL_CONFIG_SECRETS_URL`
-and `AXIOM_SKILL_IDENTITY_TOKEN_FILE`. Without them the Skill runs on declared
-defaults and `Health` reports `config_state: pending`.
+Config arrives on every `Execute` call in `ExecutionContext.config` (a
+`google.protobuf.Struct`, secrets included), resolved for
+`ExecutionContext.tenant_id`; it is never read from action inputs or
+variables. Missing or null keys take their declared default, unknown keys are
+ignored, and an absent `config` means declared defaults. A value of the wrong
+type, or one breaking `enum`/`min`/`max`/`pattern`, fails the call with error
+type `config` (the message names the key, never a secret's value).
+
+Decoded config is cached (up to `config.CacheSize` entries, LRU) by
+`(tenant_id, config_version)`; a tenant's new version replaces its old entry.
+Calls with an empty `config_version` are decoded every time.
 
 ## Node Types
 
@@ -607,10 +613,10 @@ Each skill can register multiple node types. Node types should be namespaced to 
 ## Health Checks
 
 `SkillServer` implements the `Health` RPC. For a Skill with operator config,
-`HealthResponse.config` carries `config_state` (`pending`|`loaded`), the
-declared schema, the loaded version and any load problem. Set
-`HealthRequest.config_check` (and optionally `config_tenant_id`) to run the
-`WithConfigCheck` function and include its result.
+`HealthResponse.config` carries the declared schema and `has_config_check`.
+Set `HealthRequest.config_check` and pass the effective config to check in
+`config_values` (absent means declared defaults) to run the `WithConfigCheck`
+function and include its result; invalid values yield a failed `config` row.
 
 ## Deployment
 

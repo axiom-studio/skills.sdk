@@ -1,7 +1,7 @@
 // Package config is the Skills SDK's operator-config feature: a Skill declares
 // its settings as a tagged struct, the SDK derives the shared field schema from
-// it, loads values pushed by the platform, and serves the effective config for
-// the authenticated tenant of each call through From.
+// it, and From decodes the effective config the platform sends with each call
+// (ExecutionContext.config, resolved for the call's tenant) into that struct.
 //
 //	type Config struct {
 //	    SearchProvider  string        `config:"searchProvider" label:"Search provider" enum:"yahoo,tavily" default:"yahoo"`
@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"regexp"
 	"slices"
@@ -27,6 +28,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // Scope is where an operator may set a value.
@@ -115,8 +118,7 @@ type field struct {
 	Field
 	index      []int
 	re         *regexp.Regexp
-	inGlobal   bool
-	inTenant   bool
+	goType     reflect.Type
 	effectiveV any // parsed default, nil when none
 }
 
@@ -217,7 +219,7 @@ func declare(t reflect.Type, opts []Option) (*declaration, error) {
 
 func declareField(sf reflect.StructField, key string, section []Scope) (*field, string, error) {
 	tag := sf.Tag
-	f := &field{index: sf.Index}
+	f := &field{index: sf.Index, goType: sf.Type}
 	f.Key = key
 	if !keyPattern.MatchString(key) {
 		return nil, "", fmt.Errorf("key must match %s", keyPattern)
@@ -306,8 +308,6 @@ func declareField(sf reflect.StructField, key string, section []Scope) (*field, 
 	if scopes == nil {
 		scopes = section
 	}
-	f.inGlobal = slices.Contains(scopes, Global)
-	f.inTenant = slices.Contains(scopes, Tenant)
 
 	for _, name := range []string{"min", "max"} {
 		s, ok := tag.Lookup(name)
@@ -438,26 +438,31 @@ func (f *field) parseText(s string) (any, error) {
 	return v, f.check(v)
 }
 
-// decode parses a JSON value pushed by the platform into the field's type.
-func (f *field) decode(raw json.RawMessage) (any, error) {
+// decode converts a value the platform delivered into the field's type. Errors
+// name the key and the expected type but never echo a secret's value.
+func (f *field) decode(pv *structpb.Value) (any, error) {
 	var v any
-	var err error
 	switch f.Type {
 	case TypeBool:
-		var b bool
-		err = json.Unmarshal(raw, &b)
-		v = b
+		b, ok := pv.GetKind().(*structpb.Value_BoolValue)
+		if !ok {
+			return nil, fmt.Errorf("%s: not a %s", f.Key, f.Type)
+		}
+		v = b.BoolValue
 	case TypeInt:
-		var n int64
-		err = json.Unmarshal(raw, &n)
-		v = n
+		_, ok := pv.GetKind().(*structpb.Value_NumberValue)
+		x := pv.GetNumberValue()
+		if !ok || x != math.Trunc(x) || x < math.MinInt64 || x >= math.MaxInt64 ||
+			reflect.Zero(f.goType).OverflowInt(int64(x)) {
+			return nil, fmt.Errorf("%s: not a %s", f.Key, f.Type)
+		}
+		v = int64(x)
 	default:
-		var s string
-		err = json.Unmarshal(raw, &s)
-		v = s
-	}
-	if err != nil {
-		return nil, fmt.Errorf("%s: not a %s", f.Key, f.Type)
+		sv, ok := pv.GetKind().(*structpb.Value_StringValue)
+		if !ok {
+			return nil, fmt.Errorf("%s: not a %s", f.Key, f.Type)
+		}
+		v = sv.StringValue
 	}
 	if err := f.check(v); err != nil {
 		return nil, fmt.Errorf("%s: %w", f.Key, err)
@@ -495,9 +500,7 @@ func (f *field) set(dst reflect.Value, v any) {
 	case bool:
 		fv.SetBool(x)
 	case int64:
-		if !fv.OverflowInt(x) {
-			fv.SetInt(x)
-		}
+		fv.SetInt(x)
 	case string:
 		if f.Type == TypeSecret {
 			fv.Set(reflect.ValueOf(NewSecret(x)))
@@ -505,6 +508,33 @@ func (f *field) set(dst reflect.Value, v any) {
 			fv.SetString(x)
 		}
 	}
+}
+
+// decodeInto writes declared defaults overlaid with values into dst. Missing
+// and null keys keep their default, unknown keys are ignored, and host-audience
+// fields are never set. Every invalid value is reported.
+func (d *declaration) decodeInto(dst reflect.Value, values *structpb.Struct) error {
+	var errs []error
+	for _, f := range d.fields {
+		if f.Audience == AudienceHost {
+			continue
+		}
+		v := f.effectiveV
+		if pv, ok := values.GetFields()[f.Key]; ok {
+			if _, null := pv.GetKind().(*structpb.Value_NullValue); !null && pv.GetKind() != nil {
+				parsed, err := f.decode(pv)
+				if err != nil {
+					errs = append(errs, err)
+					continue
+				}
+				v = parsed
+			}
+		}
+		if v != nil {
+			f.set(dst, v)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 var declarations sync.Map // reflect.Type -> *declaration (default options)
@@ -522,6 +552,6 @@ func defaultsOf[T any]() T {
 		cached, _ = declarations.LoadOrStore(t, d)
 	}
 	var out T
-	cached.(*declaration).apply(reflect.ValueOf(&out).Elem(), nil)
+	_ = cached.(*declaration).decodeInto(reflect.ValueOf(&out).Elem(), nil)
 	return out
 }

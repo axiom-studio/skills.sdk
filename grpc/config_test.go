@@ -9,6 +9,7 @@ import (
 	"github.com/axiom-studio/skills.sdk/config"
 	"github.com/axiom-studio/skills.sdk/executor"
 	skillpb "github.com/axiom-studio/skills.sdk/grpc/skillpb"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type providerConfig struct {
@@ -25,7 +26,7 @@ func (e *configCaptureExecutor) Execute(ctx context.Context, _ *executor.StepDef
 	return &executor.StepResult{Output: map[string]interface{}{}}, nil
 }
 
-func TestHealthReportsConfigStateAndCheck(t *testing.T) {
+func TestHealthReportsSchemaAndRunsCheckOnValues(t *testing.T) {
 	server := NewSkillServer("skill-search", "1.0.0",
 		WithConfig[providerConfig](config.Scopes(config.Global, config.Tenant)),
 		WithConfigCheck(func(_ context.Context, cfg providerConfig) config.CheckResult {
@@ -42,7 +43,7 @@ func TestHealthReportsConfigStateAndCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := resp.GetConfig()
-	if cfg == nil || cfg.ConfigState != "pending" || cfg.ConfigCheck != nil {
+	if cfg == nil || !cfg.HasConfigCheck || cfg.ConfigCheck != nil {
 		t.Fatalf("config status = %v", cfg)
 	}
 	var schema config.Schema
@@ -53,13 +54,39 @@ func TestHealthReportsConfigStateAndCheck(t *testing.T) {
 		t.Fatalf("schema = %s", cfg.Schema)
 	}
 
-	resp, err = server.Health(context.Background(), &skillpb.HealthRequest{ConfigCheck: true})
-	if err != nil {
-		t.Fatal(err)
+	check := func(values map[string]any) *skillpb.ConfigCheckResult {
+		t.Helper()
+		req := &skillpb.HealthRequest{ConfigCheck: true, ConfigTenantId: "1"}
+		if values != nil {
+			st, err := structpb.NewStruct(values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.ConfigValues = st
+		}
+		resp, err := server.Health(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp.GetConfig().GetConfigCheck()
 	}
-	check := resp.GetConfig().GetConfigCheck()
-	if check.GetStatus() != "ok" || len(check.GetChecks()) != 1 || check.Checks[0].Label != "Provider yahoo" {
-		t.Fatalf("check = %v", check)
+	if c := check(nil); c.GetStatus() != "ok" || len(c.GetChecks()) != 1 || c.Checks[0].Label != "Provider yahoo" {
+		t.Fatalf("defaults check = %v", c)
+	}
+	if c := check(map[string]any{"provider": "tavily"}); c.GetStatus() != "fail" || c.Checks[0].Label != "Provider tavily" {
+		t.Fatalf("values check = %v", c)
+	}
+	if c := check(map[string]any{"provider": "tavily", "apiKey": "k"}); c.GetStatus() != "ok" {
+		t.Fatalf("values check = %v", c)
+	}
+	if c := check(map[string]any{"provider": 1}); c.GetStatus() != "fail" || c.Checks[0].Id != "config" {
+		t.Fatalf("invalid values check = %v", c)
+	}
+
+	noCheck := NewSkillServer("s", "1", WithConfig[providerConfig]())
+	resp, _ = noCheck.Health(context.Background(), &skillpb.HealthRequest{ConfigCheck: true})
+	if resp.GetConfig().GetHasConfigCheck() || resp.GetConfig().GetConfigCheck() != nil {
+		t.Fatalf("no-check status = %v", resp.GetConfig())
 	}
 }
 
@@ -70,44 +97,48 @@ func TestHealthWithoutConfig(t *testing.T) {
 	}
 }
 
-func TestExecuteScopesConfigToContextTenant(t *testing.T) {
+func TestExecuteReadsConfigOnlyFromExecutionContext(t *testing.T) {
 	capture := &configCaptureExecutor{}
 	server := NewSkillServer("skill-search", "1.0.0", WithConfig[providerConfig](config.Scopes(config.Global, config.Tenant)))
 	server.RegisterExecutor(capture.Type(), capture)
-	store, ok := server.config.(*config.Store[providerConfig])
-	if !ok {
-		t.Fatalf("config runtime = %T", server.config)
-	}
-	recorder := &bindRecorder{Runtime: store}
-	server.config = recorder
 
-	// Model-controlled config/input naming a tenant has no effect.
-	tenantArg, _ := json.Marshal("2")
-	resp, err := server.Execute(context.Background(), &skillpb.ExecuteRequest{
-		NodeType: capture.Type(),
-		Config:   map[string][]byte{"tenantId": tenantArg},
-		Input:    map[string][]byte{"tenantId": tenantArg},
-		Context:  &skillpb.ExecutionContext{TenantId: "1", Variables: map[string]string{"tenantId": "2"}},
-	})
-	if err != nil || resp.Error != nil {
-		t.Fatalf("execute: %v %v", resp, err)
+	execute := func(ec *skillpb.ExecutionContext) *skillpb.ExecuteResponse {
+		t.Helper()
+		// Model-controlled config/input/variables naming config have no effect.
+		arg, _ := json.Marshal("tavily")
+		resp, err := server.Execute(context.Background(), &skillpb.ExecuteRequest{
+			NodeType: capture.Type(),
+			Config:   map[string][]byte{"provider": arg},
+			Input:    map[string][]byte{"provider": arg},
+			Context:  ec,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
 	}
-	if capture.seen.Provider != "yahoo" {
-		t.Fatalf("config = %+v", capture.seen)
+	if resp := execute(&skillpb.ExecutionContext{TenantId: "1", Variables: map[string]string{"provider": "tavily"}}); resp.Error != nil ||
+		capture.seen.Provider != "yahoo" {
+		t.Fatalf("absent config: %v %+v", resp.Error, capture.seen)
 	}
-	if len(recorder.tenants) != 1 || recorder.tenants[0] != "1" {
-		t.Fatalf("bound tenants = %v, want [1]", recorder.tenants)
-	}
-}
 
-type bindRecorder struct {
-	config.Runtime
-	tenants []string
-}
+	t1, _ := structpb.NewStruct(map[string]any{"provider": "tavily", "apiKey": "tenant-1-key"})
+	if resp := execute(&skillpb.ExecutionContext{TenantId: "1", ConfigVersion: "7", Config: t1}); resp.Error != nil ||
+		capture.seen.Provider != "tavily" || capture.seen.APIKey.Reveal() != "tenant-1-key" {
+		t.Fatalf("tenant 1: %v %+v", resp.Error, capture.seen)
+	}
+	// Tenant 2 on the same version sees only its own config.
+	if resp := execute(&skillpb.ExecutionContext{TenantId: "2", ConfigVersion: "7"}); resp.Error != nil ||
+		capture.seen.Provider != "yahoo" || capture.seen.APIKey.IsSet() {
+		t.Fatalf("tenant 2: %v %+v", resp.Error, capture.seen)
+	}
 
-func (r *bindRecorder) Bind(ctx context.Context, tenantID string) context.Context {
-	r.tenants = append(r.tenants, tenantID)
-	return r.Runtime.Bind(ctx, tenantID)
+	bad, _ := structpb.NewStruct(map[string]any{"provider": "bing", "apiKey": "secret-value"})
+	resp := execute(&skillpb.ExecutionContext{TenantId: "3", Config: bad})
+	if resp.Error == nil || resp.Error.Type != "config" || !strings.Contains(resp.Error.Message, "provider") ||
+		strings.Contains(resp.Error.Message, "secret-value") {
+		t.Fatalf("invalid config error = %v", resp.Error)
+	}
 }
 
 func TestConfigOptionMisuse(t *testing.T) {

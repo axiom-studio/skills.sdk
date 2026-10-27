@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -230,85 +234,132 @@ func TestSecretRedaction(t *testing.T) {
 	}
 }
 
-func rawMap(t *testing.T, v map[string]any) map[string]json.RawMessage {
+func values(t *testing.T, v map[string]any) *structpb.Struct {
 	t.Helper()
-	out := map[string]json.RawMessage{}
-	for k, val := range v {
-		data, err := json.Marshal(val)
-		if err != nil {
-			t.Fatal(err)
-		}
-		out[k] = data
-	}
-	return out
-}
-
-func TestFromPrecedenceAndTenantIsolation(t *testing.T) {
-	store, err := NewStore[searchConfig]("skill-browser", nil, Scopes(Global, Tenant))
+	st, err := structpb.NewStruct(v)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	return st
+}
 
-	// Pending: declared defaults; host fields never present.
-	cfg := From[searchConfig](store.Bind(ctx, "1"))
-	if cfg.SearchProvider != "yahoo" || cfg.MaxResults != 10 || cfg.Region != "us" ||
-		cfg.Endpoint != "https://api.example.com" || cfg.OAuthClientID != "" {
-		t.Fatalf("defaults = %+v", cfg)
-	}
-	if store.Status().State != StatePending {
-		t.Fatalf("state = %s", store.Status().State)
-	}
-
-	l := &loader[searchConfig]{store: store, secrets: &secretsDoc{}}
-	l.doc = &document{
-		Version: 3,
-		Global: rawMap(t, map[string]any{
-			"searchProvider": "tavily", "maxResults": 20, "region": "de", // region is tenant-only
-			"oauthClientId": "leak", "tavilyApiKey": "not-from-kv",
-		}),
-		Tenants: map[string]map[string]json.RawMessage{
-			"1": rawMap(t, map[string]any{"searchProvider": "yahoo", "region": "fr", "endpoint": "https://t1",
-				"maxResults": 999}), // endpoint is global-only; 999 is out of range
-			"2": rawMap(t, map[string]any{"fallbackToYahoo": true}),
-		},
-	}
-	l.secretsFetched = &secretsVersion{Global: 1, Tenants: map[string]uint64{"2": 1}}
-	l.doc.SecretsVersion = *l.secretsFetched
-	l.secrets = &secretsDoc{
-		Global:  map[string]string{"tavilyApiKey": "global-key", "oauthClientSecret": "host"},
-		Tenants: map[string]map[string]string{"2": {"tavilyApiKey": "tenant-2-key"}},
-	}
-	if err := l.apply(ctx); err != nil {
+func newSpec(t *testing.T) *Spec[searchConfig] {
+	t.Helper()
+	spec, err := NewSpec[searchConfig](nil, Scopes(Global, Tenant))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if st := store.Status(); st.State != StateLoaded || st.Version != 3 || !strings.Contains(st.Detail, "maxResults") {
-		t.Fatalf("status = %+v", st)
+	return spec
+}
+
+func bindFrom(t *testing.T, spec *Spec[searchConfig], call Call) searchConfig {
+	t.Helper()
+	ctx, err := spec.Bind(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return From[searchConfig](ctx)
+}
+
+func TestFromValuesOverDefaults(t *testing.T) {
+	spec := newSpec(t)
+
+	// Absent config: declared defaults; host fields never present.
+	cfg := bindFrom(t, spec, Call{TenantID: "1"})
+	if cfg.SearchProvider != "yahoo" || cfg.MaxResults != 10 || cfg.Region != "us" ||
+		cfg.Endpoint != "https://api.example.com" || cfg.OAuthClientID != "" || cfg.TavilyAPIKey.IsSet() {
+		t.Fatalf("defaults = %+v", cfg)
 	}
 
-	t1 := From[searchConfig](store.Bind(ctx, "1"))
-	t2 := From[searchConfig](store.Bind(ctx, "2"))
-	t3 := From[searchConfig](store.Bind(ctx, "3"))
-	none := From[searchConfig](store.Bind(ctx, ""))
-
-	if t1.SearchProvider != "yahoo" || t1.Region != "fr" || t1.Endpoint != "https://api.example.com" ||
-		t1.MaxResults != 20 || t1.TavilyAPIKey.Reveal() != "global-key" {
-		t.Fatalf("tenant 1 = %+v (%s)", t1, t1.TavilyAPIKey.Reveal())
+	cfg = bindFrom(t, spec, Call{TenantID: "1", Values: values(t, map[string]any{
+		"searchProvider": "tavily", "maxResults": 20, "region": nil, // null keeps the default
+		"tavilyApiKey": "tvly-key", "fallbackToYahoo": true,
+		"oauthClientId": "leak", "oauthClientSecret": "leak", "unknownKey": 1,
+	})})
+	if cfg.SearchProvider != "tavily" || cfg.MaxResults != 20 || !cfg.FallbackToYahoo ||
+		cfg.Region != "us" || cfg.Endpoint != "https://api.example.com" || cfg.TavilyAPIKey.Reveal() != "tvly-key" {
+		t.Fatalf("decoded = %+v", cfg)
 	}
-	if t2.SearchProvider != "tavily" || !t2.FallbackToYahoo || t2.Region != "us" ||
-		t2.TavilyAPIKey.Reveal() != "tenant-2-key" {
+	if cfg.OAuthClientID != "" || cfg.OAuthSecret.IsSet() {
+		t.Fatalf("host field delivered: %+v", cfg)
+	}
+}
+
+func TestFromTypeErrors(t *testing.T) {
+	spec := newSpec(t)
+	for name, tc := range map[string]struct {
+		values map[string]any
+		want   string
+	}{
+		"bool as string":   {map[string]any{"fallbackToYahoo": "yes"}, "fallbackToYahoo: not a bool"},
+		"int as string":    {map[string]any{"maxResults": "10"}, "maxResults: not a int"},
+		"fractional int":   {map[string]any{"maxResults": 1.5}, "maxResults: not a int"},
+		"int above max":    {map[string]any{"maxResults": 999}, "above max"},
+		"enum value":       {map[string]any{"searchProvider": "bing"}, "is not one of"},
+		"pattern":          {map[string]any{"region": "usa"}, "does not match pattern"},
+		"string as number": {map[string]any{"endpoint": 3}, "endpoint: not a url"},
+		"secret as bool":   {map[string]any{"tavilyApiKey": true}, "tavilyApiKey: not a secret"},
+		"several": {map[string]any{"maxResults": "x", "fallbackToYahoo": 1},
+			"fallbackToYahoo: not a bool\nmaxResults: not a int"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := spec.Bind(context.Background(), Call{TenantID: "1", Values: values(t, tc.values)})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want containing %q", err, tc.want)
+			}
+		})
+	}
+
+	type narrow struct {
+		Small int8 `config:"small" label:"Small"`
+	}
+	n, err := NewSpec[narrow](nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := n.Decode(values(t, map[string]any{"small": 300})); err == nil {
+		t.Fatal("int8 overflow accepted")
+	}
+}
+
+func TestSecretValuesAreRedacted(t *testing.T) {
+	const key = "tvly-very-secret"
+	spec := newSpec(t)
+	cfg := bindFrom(t, spec, Call{TenantID: "1", Values: values(t, map[string]any{"tavilyApiKey": key})})
+	data, _ := json.Marshal(cfg)
+	for _, out := range []string{fmt.Sprintf("%v", cfg), fmt.Sprintf("%+v", cfg), fmt.Sprintf("%#v", cfg), string(data)} {
+		if strings.Contains(out, key) {
+			t.Fatalf("secret leaked: %s", out)
+		}
+	}
+	if cfg.TavilyAPIKey.Reveal() != key {
+		t.Fatal("Reveal lost the value")
+	}
+	// A bad secret value is reported without echoing it.
+	_, err := spec.Bind(context.Background(), Call{Values: values(t, map[string]any{"tavilyApiKey": []any{key}})})
+	if err == nil || strings.Contains(err.Error(), key) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFromUsesOnlyTheCallsConfig(t *testing.T) {
+	spec := newSpec(t)
+	ctx1, err := spec.Bind(context.Background(), Call{TenantID: "1", Values: values(t, map[string]any{
+		"searchProvider": "tavily", "tavilyApiKey": "tenant-1-key",
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx2, err := spec.Bind(context.Background(), Call{TenantID: "2", Values: values(t, map[string]any{"maxResults": 5})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1, t2 := From[searchConfig](ctx1), From[searchConfig](ctx2)
+	if t1.SearchProvider != "tavily" || t1.TavilyAPIKey.Reveal() != "tenant-1-key" || t1.MaxResults != 10 {
+		t.Fatalf("tenant 1 = %+v", t1)
+	}
+	if t2.SearchProvider != "yahoo" || t2.TavilyAPIKey.IsSet() || t2.MaxResults != 5 {
 		t.Fatalf("tenant 2 = %+v", t2)
-	}
-	for name, c := range map[string]searchConfig{"tenant 3": t3, "no tenant": none} {
-		if c.SearchProvider != "tavily" || c.FallbackToYahoo || c.Region != "us" ||
-			c.TavilyAPIKey.Reveal() != "global-key" {
-			t.Fatalf("%s = %+v", name, c)
-		}
-	}
-	for _, c := range []searchConfig{t1, t2, t3, none} {
-		if c.OAuthClientID != "" || c.OAuthSecret.IsSet() {
-			t.Fatalf("host field delivered: %+v", c)
-		}
 	}
 }
 
@@ -320,7 +371,7 @@ func TestFromWithoutServerReturnsDefaults(t *testing.T) {
 }
 
 func TestFromWrongTypePanics(t *testing.T) {
-	store, err := NewStore[searchConfig]("s", nil, Scopes(Global, Tenant))
+	ctx, err := newSpec(t).Bind(context.Background(), Call{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,21 +383,158 @@ func TestFromWrongTypePanics(t *testing.T) {
 	type other struct {
 		A string `config:"a" label:"A"`
 	}
-	From[other](store.Bind(context.Background(), "1"))
+	From[other](ctx)
 }
 
-func TestCheckDerivesStatus(t *testing.T) {
-	store, err := NewStore[searchConfig]("s", func(ctx context.Context, c searchConfig) CheckResult {
-		if From[searchConfig](ctx).SearchProvider != c.SearchProvider {
+func TestCheckDecodesValues(t *testing.T) {
+	spec, err := NewSpec[searchConfig](func(ctx context.Context, c searchConfig) CheckResult {
+		if From[searchConfig](ctx) != c {
 			panic("ctx not bound")
 		}
-		return CheckResult{Checks: []Check{{ID: "a", Label: "A", Status: CheckOK}, {ID: "b", Label: "B", Status: CheckWarn}}}
+		status := CheckOK
+		if c.SearchProvider == "tavily" && !c.TavilyAPIKey.IsSet() {
+			status = CheckFail
+		}
+		return CheckResult{Checks: []Check{{ID: "a", Label: "A", Status: CheckOK}, {ID: "key", Label: "Key", Status: status}}}
 	}, Scopes(Global, Tenant))
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, ok := store.Check(context.Background(), "1")
-	if !ok || res.Status != CheckWarn {
-		t.Fatalf("check = %+v %v", res, ok)
+	if !spec.HasCheck() || newSpec(t).HasCheck() {
+		t.Fatal("HasCheck wrong")
+	}
+	if res, ok := spec.Check(context.Background(), nil); !ok || res.Status != CheckOK {
+		t.Fatalf("defaults check = %+v %v", res, ok)
+	}
+	res, _ := spec.Check(context.Background(), values(t, map[string]any{"searchProvider": "tavily"}))
+	if res.Status != CheckFail {
+		t.Fatalf("check = %+v", res)
+	}
+	res, _ = spec.Check(context.Background(), values(t, map[string]any{"maxResults": "x"}))
+	if res.Status != CheckFail || res.Checks[0].ID != "config" {
+		t.Fatalf("invalid values check = %+v", res)
+	}
+}
+
+// countingCall is a call whose maxResults value shows which decode produced
+// the config a call sees.
+func countingCall(t *testing.T, tenant, version string, max int) Call {
+	return Call{TenantID: tenant, Version: version, Values: values(t, map[string]any{"maxResults": max})}
+}
+
+func TestDecodeCache(t *testing.T) {
+	spec := newSpec(t)
+	ctx := context.Background()
+	get := func(call Call) searchConfig {
+		t.Helper()
+		c, err := spec.Bind(ctx, call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return From[searchConfig](c)
+	}
+
+	// Miss, then hit: a hit returns the cached value without decoding, so
+	// different values under the same key prove the cache served it.
+	if got := get(countingCall(t, "1", "v1", 11)); got.MaxResults != 11 {
+		t.Fatalf("miss = %d", got.MaxResults)
+	}
+	if got := get(countingCall(t, "1", "v1", 12)); got.MaxResults != 11 {
+		t.Fatalf("hit = %d, want cached 11", got.MaxResults)
+	}
+	// Same version, other tenant: no collision.
+	if got := get(countingCall(t, "2", "v1", 22)); got.MaxResults != 22 {
+		t.Fatalf("tenant 2 = %d", got.MaxResults)
+	}
+	// A new version replaces the tenant's old entry.
+	if got := get(countingCall(t, "1", "v2", 13)); got.MaxResults != 13 {
+		t.Fatalf("v2 = %d", got.MaxResults)
+	}
+	spec.mu.Lock()
+	_, oldKept := spec.cache[cacheKey{"1", "v1"}]
+	n := spec.lru.Len()
+	spec.mu.Unlock()
+	if oldKept || n != 2 {
+		t.Fatalf("old entry kept = %v, entries = %d", oldKept, n)
+	}
+	// Empty version: always decoded, never cached.
+	if got := get(countingCall(t, "1", "", 14)); got.MaxResults != 14 {
+		t.Fatalf("unversioned = %d", got.MaxResults)
+	}
+	if got := get(countingCall(t, "1", "", 15)); got.MaxResults != 15 {
+		t.Fatalf("unversioned = %d", got.MaxResults)
+	}
+	if spec.lru.Len() != 2 {
+		t.Fatalf("entries = %d after unversioned calls", spec.lru.Len())
+	}
+	// Decode errors are not cached.
+	if _, err := spec.Bind(ctx, Call{TenantID: "3", Version: "v1", Values: values(t, map[string]any{"maxResults": "x"})}); err == nil {
+		t.Fatal("expected error")
+	}
+	if got := get(countingCall(t, "3", "v1", 33)); got.MaxResults != 33 {
+		t.Fatalf("after error = %d", got.MaxResults)
+	}
+	// Cached secrets stay redacted Secrets.
+	c := get(Call{TenantID: "4", Version: "v1", Values: values(t, map[string]any{"tavilyApiKey": "k4"})})
+	c2 := get(Call{TenantID: "4", Version: "v1"})
+	if c2.TavilyAPIKey.Reveal() != "k4" || fmt.Sprint(c.TavilyAPIKey) != redacted {
+		t.Fatalf("cached secret = %v", c2.TavilyAPIKey)
+	}
+}
+
+func TestDecodeCacheBound(t *testing.T) {
+	spec := newSpec(t)
+	for i := range CacheSize + 10 {
+		if _, err := spec.Bind(context.Background(), countingCall(t, fmt.Sprint("t", i), "v1", 1+i%50)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	spec.mu.Lock()
+	n, m := spec.lru.Len(), len(spec.cache)
+	_, oldest := spec.cache[cacheKey{"t0", "v1"}]
+	_, newest := spec.cache[cacheKey{fmt.Sprint("t", CacheSize+9), "v1"}]
+	spec.mu.Unlock()
+	if n != CacheSize || m != CacheSize || oldest || !newest {
+		t.Fatalf("len = %d/%d, oldest kept = %v, newest kept = %v", n, m, oldest, newest)
+	}
+}
+
+func TestDecodeCacheConcurrent(t *testing.T) {
+	spec := newSpec(t)
+	var wg sync.WaitGroup
+	for g := range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 500 {
+				tenant := fmt.Sprint("t", (g+i)%300)
+				version := fmt.Sprint("v", i%3)
+				want := 1 + (g+i)%300%50
+				ctx, err := spec.Bind(context.Background(), Call{TenantID: tenant, Version: version,
+					Values: values(t, map[string]any{"maxResults": want})})
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if got := From[searchConfig](ctx).MaxResults; got != want {
+					t.Errorf("tenant %s got %d want %d", tenant, got, want)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if spec.lru.Len() > CacheSize {
+		t.Fatalf("cache grew to %d", spec.lru.Len())
+	}
+}
+
+func TestNoNATSDependency(t *testing.T) {
+	out, err := exec.Command("go", "list", "-deps", "github.com/axiom-studio/skills.sdk/...").CombinedOutput()
+	if err != nil {
+		t.Skipf("go list: %v", err)
+	}
+	if strings.Contains(string(out), "nats") {
+		t.Fatalf("nats dependency found:\n%s", out)
 	}
 }

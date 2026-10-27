@@ -48,8 +48,8 @@ message ExecutionContext {
     string namespace = 3;
     map<string, string> variables = 4;
     // Authenticated tenant of the call, set by the platform from the caller's
-    // identity (never from action arguments). The SDK scopes operator config
-    // to it.
+    // identity (never from action arguments). config below is resolved for
+    // it, and the SDK keys its decoded-config cache by it.
     string tenant_id = 5;
     // Effective operator config of the Skill for tenant_id (declared fields
     // only, secrets included, host-audience fields never), resolved by the
@@ -103,8 +103,8 @@ message GetNodeSchemaResponse {
 message HealthRequest {
     // Run the Skill's config check (WithConfigCheck) and include the result.
     bool config_check = 1;
-    // Tenant whose effective config the check runs against; empty means the
-    // global effective config.
+    // Tenant config_values were resolved for (informational; empty means the
+    // global effective config).
     string config_tenant_id = 2;
     // Effective config the check runs against (same shape as
     // ExecutionContext.config). Unset means declared defaults.
