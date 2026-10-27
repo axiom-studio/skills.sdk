@@ -119,7 +119,14 @@ type field struct {
 	index      []int
 	re         *regexp.Regexp
 	goType     reflect.Type
-	effectiveV any // parsed default, nil when none
+	effectiveV any         // parsed default, nil when none
+	when       []condition // RequiredWhen in declaration order
+}
+
+// condition is one requiredWhen condition: the field key must equal value.
+type condition struct {
+	key   string
+	value any
 }
 
 type declaration struct {
@@ -208,6 +215,7 @@ func declare(t reflect.Type, opts []Option) (*declaration, error) {
 				return nil, fmt.Errorf("config: field %q: requiredWhen %s: %w", f.Key, name, err)
 			}
 			when[name] = v
+			f.when = append(f.when, condition{name, v})
 		}
 		f.RequiredWhen = when
 	}
@@ -512,29 +520,75 @@ func (f *field) set(dst reflect.Value, v any) {
 
 // decodeInto writes declared defaults overlaid with values into dst. Missing
 // and null keys keep their default, unknown keys are ignored, and host-audience
-// fields are never set. Every invalid value is reported.
-func (d *declaration) decodeInto(dst reflect.Value, values *structpb.Struct) error {
+// fields are never set. Every invalid value is reported. With checkRequired,
+// a required field, or a requiredWhen field whose conditions all hold, that is
+// still unset after defaults is reported too (only when no value was invalid).
+func (d *declaration) decodeInto(dst reflect.Value, values *structpb.Struct, checkRequired bool) error {
 	var errs []error
+	effective := make(map[string]any, len(d.fields))
 	for _, f := range d.fields {
-		if f.Audience == AudienceHost {
-			continue
-		}
 		v := f.effectiveV
-		if pv, ok := values.GetFields()[f.Key]; ok {
-			if _, null := pv.GetKind().(*structpb.Value_NullValue); !null && pv.GetKind() != nil {
-				parsed, err := f.decode(pv)
-				if err != nil {
-					errs = append(errs, err)
-					continue
+		if f.Audience != AudienceHost {
+			if pv, ok := values.GetFields()[f.Key]; ok {
+				if _, null := pv.GetKind().(*structpb.Value_NullValue); !null && pv.GetKind() != nil {
+					parsed, err := f.decode(pv)
+					if err != nil {
+						errs = append(errs, err)
+						continue
+					}
+					v = parsed
 				}
-				v = parsed
+			}
+			if v != nil {
+				f.set(dst, v)
 			}
 		}
-		if v != nil {
-			f.set(dst, v)
+		effective[f.Key] = f.zeroed(v)
+	}
+	if !checkRequired || len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	for _, f := range d.fields {
+		if f.Audience == AudienceHost || effective[f.Key] != "" {
+			continue
+		}
+		if f.Required {
+			errs = append(errs, fmt.Errorf("%s: required", f.Key))
+			continue
+		}
+		if len(f.when) == 0 {
+			continue
+		}
+		conds := make([]string, 0, len(f.when))
+		holds := true
+		for _, c := range f.when {
+			if effective[c.key] != c.value {
+				holds = false
+				break
+			}
+			conds = append(conds, fmt.Sprintf("%s=%v", c.key, c.value))
+		}
+		if holds {
+			errs = append(errs, fmt.Errorf("%s: required when %s", f.Key, strings.Join(conds, ", ")))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// zeroed is v, or the field type's zero value when v is nil. Only string-like
+// fields (string, enum, url, secret) can be empty: a bool or int always has a
+// value.
+func (f *field) zeroed(v any) any {
+	if v != nil {
+		return v
+	}
+	switch f.Type {
+	case TypeBool:
+		return false
+	case TypeInt:
+		return int64(0)
+	}
+	return ""
 }
 
 var declarations sync.Map // reflect.Type -> *declaration (default options)
@@ -552,6 +606,6 @@ func defaultsOf[T any]() T {
 		cached, _ = declarations.LoadOrStore(t, d)
 	}
 	var out T
-	_ = cached.(*declaration).decodeInto(reflect.ValueOf(&out).Elem(), nil)
+	_ = cached.(*declaration).decodeInto(reflect.ValueOf(&out).Elem(), nil, false)
 	return out
 }

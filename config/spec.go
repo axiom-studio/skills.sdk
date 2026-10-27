@@ -49,7 +49,8 @@ type Call struct {
 // Runtime is the non-generic face of a Spec, used by the gRPC server.
 type Runtime interface {
 	// Bind decodes the call's config and returns ctx carrying it for From. It
-	// fails when a value has the wrong type or breaks a declared constraint.
+	// fails when a value has the wrong type or breaks a declared constraint, or
+	// when a required (or applicable requiredWhen) field is unset.
 	Bind(ctx context.Context, call Call) (context.Context, error)
 	Schema() *Schema
 	// HasCheck reports whether a config check is declared.
@@ -65,9 +66,8 @@ const CacheSize = 256
 
 // Spec is a Skill's declared config type T plus its optional check.
 type Spec[T any] struct {
-	decl     *declaration
-	check    func(context.Context, T) CheckResult
-	defaults T
+	decl  *declaration
+	check func(context.Context, T) CheckResult
 
 	mu    sync.Mutex
 	cache map[cacheKey]*list.Element
@@ -88,20 +88,16 @@ func NewSpec[T any](check func(context.Context, T) CheckResult, opts ...Option) 
 	if err != nil {
 		return nil, err
 	}
-	s := &Spec[T]{decl: d, check: check, cache: map[cacheKey]*list.Element{}, lru: list.New(), size: CacheSize}
-	if err := d.decodeInto(reflect.ValueOf(&s.defaults).Elem(), nil); err != nil {
-		return nil, err
-	}
-	return s, nil
+	return &Spec[T]{decl: d, check: check, cache: map[cacheKey]*list.Element{}, lru: list.New(), size: CacheSize}, nil
 }
 
-// Decode returns T for values: declared defaults overlaid with the values.
+// Decode returns T for values (nil: none): declared defaults overlaid with the
+// values. It fails when a value has the wrong type or breaks a constraint, or
+// when a required field, or a requiredWhen field whose conditions all hold, is
+// unset after defaults. Errors name keys, never a secret's value.
 func (s *Spec[T]) Decode(values *structpb.Struct) (T, error) {
-	if values == nil {
-		return s.defaults, nil
-	}
 	var out T
-	if err := s.decl.decodeInto(reflect.ValueOf(&out).Elem(), values); err != nil {
+	if err := s.decl.decodeInto(reflect.ValueOf(&out).Elem(), values, true); err != nil {
 		return out, fmt.Errorf("invalid config: %w", err)
 	}
 	return out, nil

@@ -538,3 +538,115 @@ func TestNoNATSDependency(t *testing.T) {
 		t.Fatalf("nats dependency found:\n%s", out)
 	}
 }
+
+type requiredConfig struct {
+	Mode     string `config:"mode" label:"Mode" enum:"basic,oauth" default:"basic"`
+	Strict   bool   `config:"strict" label:"Strict"`
+	Name     string `config:"name" label:"Name" required:"true"`
+	Token    Secret `config:"token" label:"Token" required:"true"`
+	Password Secret `config:"password" label:"Password" requiredWhen:"mode=basic"`
+	ClientID string `config:"clientId" label:"Client ID" requiredWhen:"mode=oauth,strict=true"`
+	Retries  int    `config:"retries" label:"Retries" required:"true"`
+	Host     string `config:"host" label:"Host" audience:"host" required:"true"`
+}
+
+func TestRequiredFields(t *testing.T) {
+	spec, err := NewSpec[requiredConfig](nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := map[string]any{"name": "n", "token": "tok-secret", "password": "pw-secret"}
+	with := func(over map[string]any) map[string]any {
+		m := map[string]any{}
+		for k, v := range full {
+			m[k] = v
+		}
+		for k, v := range over {
+			m[k] = v
+		}
+		return m
+	}
+	for name, tc := range map[string]struct {
+		values  map[string]any
+		want    string // "" means success
+		notWant []string
+	}{
+		"all set": {values: full},
+		// A bool or int always has a value; host fields are never checked.
+		"required missing": {values: with(map[string]any{"name": nil}), want: "invalid config: name: required",
+			notWant: []string{"retries", "host", "tok-secret", "pw-secret"}},
+		"required empty string": {values: with(map[string]any{"name": ""}), want: "name: required"},
+		"secret required":       {values: with(map[string]any{"token": ""}), want: "token: required", notWant: []string{"pw-secret"}},
+		"nil values":            {values: nil, want: "invalid config: name: required\ntoken: required\npassword: required when mode=basic"},
+		"requiredWhen true (default)": {values: with(map[string]any{"password": nil}),
+			want: "password: required when mode=basic"},
+		"requiredWhen false":         {values: with(map[string]any{"mode": "oauth", "password": nil})},
+		"AND: one condition holds":   {values: with(map[string]any{"mode": "oauth"})},
+		"AND: other condition holds": {values: with(map[string]any{"strict": true})},
+		"AND: all conditions hold": {values: with(map[string]any{"mode": "oauth", "strict": true}),
+			want: "clientId: required when mode=oauth, strict=true"},
+		"AND: satisfied": {values: with(map[string]any{"mode": "oauth", "strict": true, "clientId": "c"})},
+		// Type errors are reported alone, without required errors.
+		"type error first": {values: map[string]any{"retries": "x"}, want: "retries: not a int", notWant: []string{"required"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var st *structpb.Struct
+			if tc.values != nil {
+				st = values(t, tc.values)
+			}
+			_, err := spec.Bind(context.Background(), Call{TenantID: "1", Values: st})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("err = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want containing %q", err, tc.want)
+			}
+			for _, s := range tc.notWant {
+				if strings.Contains(err.Error(), s) {
+					t.Fatalf("err = %v, must not contain %q", err, s)
+				}
+			}
+		})
+	}
+
+	// Failures are not cached: the same (tenant, version) succeeds once fixed.
+	call := Call{TenantID: "1", Version: "v1", Values: values(t, with(map[string]any{"name": nil}))}
+	if _, err := spec.Bind(context.Background(), call); err == nil {
+		t.Fatal("expected error")
+	}
+	if spec.lru.Len() != 0 {
+		t.Fatal("failure cached")
+	}
+	call.Values = values(t, full)
+	if _, err := spec.Bind(context.Background(), call); err != nil {
+		t.Fatal(err)
+	}
+
+	// From without a server still returns declared defaults.
+	if cfg := From[requiredConfig](context.Background()); cfg.Mode != "basic" {
+		t.Fatalf("defaults = %+v", cfg)
+	}
+}
+
+func TestCheckReportsRequired(t *testing.T) {
+	called := false
+	spec, err := NewSpec[requiredConfig](func(context.Context, requiredConfig) CheckResult {
+		called = true
+		return CheckResult{}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, ok := spec.Check(context.Background(), values(t, map[string]any{"name": "n", "token": "tok-secret"}))
+	if !ok || called || res.Status != CheckFail || len(res.Checks) != 1 || res.Checks[0].ID != "config" ||
+		res.Checks[0].Status != CheckFail || !strings.Contains(res.Checks[0].Detail, "password: required when mode=basic") ||
+		strings.Contains(res.Checks[0].Detail, "tok-secret") {
+		t.Fatalf("check = %+v %v", res, ok)
+	}
+	if res, _ := spec.Check(context.Background(), nil); res.Status != CheckFail || !strings.Contains(res.Checks[0].Detail, "name: required") {
+		t.Fatalf("defaults check = %+v", res)
+	}
+}

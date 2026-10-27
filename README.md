@@ -595,7 +595,11 @@ Config arrives on every `Execute` call in `ExecutionContext.config` (a
 variables. Missing or null keys take their declared default, unknown keys are
 ignored, and an absent `config` means declared defaults. A value of the wrong
 type, or one breaking `enum`/`min`/`max`/`pattern`, fails the call with error
-type `config` (the message names the key, never a secret's value).
+type `config` (the message names the key, never a secret's value). So does a
+`required` field that is still unset (missing, null or `""`) after defaults,
+or a `requiredWhen` field whose conditions all hold (several conditions, joined
+by commas, must all hold): `apiKey: required when provider=tavily`. A `bool`
+or `int` field always has a value. Failed decodes are never cached.
 
 Decoded config is cached (up to `config.CacheSize` entries, LRU) by
 `(tenant_id, config_version)`; a tenant's new version replaces its old entry.
@@ -616,7 +620,8 @@ Each skill can register multiple node types. Node types should be namespaced to 
 `HealthResponse.config` carries the declared schema and `has_config_check`.
 Set `HealthRequest.config_check` and pass the effective config to check in
 `config_values` (absent means declared defaults) to run the `WithConfigCheck`
-function and include its result; invalid values yield a failed `config` row.
+function and include its result; invalid values, or an unset required or
+applicable `requiredWhen` field, yield a failed `config` row instead.
 
 ## Deployment
 

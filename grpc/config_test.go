@@ -73,7 +73,10 @@ func TestHealthReportsSchemaAndRunsCheckOnValues(t *testing.T) {
 	if c := check(nil); c.GetStatus() != "ok" || len(c.GetChecks()) != 1 || c.Checks[0].Label != "Provider yahoo" {
 		t.Fatalf("defaults check = %v", c)
 	}
-	if c := check(map[string]any{"provider": "tavily"}); c.GetStatus() != "fail" || c.Checks[0].Label != "Provider tavily" {
+	// An unset requiredWhen field is a failed config row, not a crash.
+	if c := check(map[string]any{"provider": "tavily"}); c.GetStatus() != "fail" || len(c.GetChecks()) != 1 ||
+		c.Checks[0].Id != "config" || c.Checks[0].Status != "fail" ||
+		!strings.Contains(c.Checks[0].Detail, "apiKey: required when provider=tavily") {
 		t.Fatalf("values check = %v", c)
 	}
 	if c := check(map[string]any{"provider": "tavily", "apiKey": "k"}); c.GetStatus() != "ok" {
@@ -131,6 +134,12 @@ func TestExecuteReadsConfigOnlyFromExecutionContext(t *testing.T) {
 	if resp := execute(&skillpb.ExecutionContext{TenantId: "2", ConfigVersion: "7"}); resp.Error != nil ||
 		capture.seen.Provider != "yahoo" || capture.seen.APIKey.IsSet() {
 		t.Fatalf("tenant 2: %v %+v", resp.Error, capture.seen)
+	}
+
+	missing, _ := structpb.NewStruct(map[string]any{"provider": "tavily"})
+	if resp := execute(&skillpb.ExecutionContext{TenantId: "4", ConfigVersion: "8", Config: missing}); resp.Error == nil ||
+		resp.Error.Type != "config" || !strings.Contains(resp.Error.Message, "apiKey: required when provider=tavily") {
+		t.Fatalf("missing requiredWhen error = %v", resp.Error)
 	}
 
 	bad, _ := structpb.NewStruct(map[string]any{"provider": "bing", "apiKey": "secret-value"})
