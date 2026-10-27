@@ -126,7 +126,11 @@ type ExecutionContext struct {
 	// Effective operator config of the Skill for tenant_id (declared fields
 	// only, secrets included, host-audience fields never), resolved by the
 	// platform for this call. Unset means the Skill runs on declared defaults.
-	Config        *structpb.Struct `protobuf:"bytes,6,opt,name=config,proto3" json:"config,omitempty"`
+	Config *structpb.Struct `protobuf:"bytes,6,opt,name=config,proto3" json:"config,omitempty"`
+	// Version of tenant_id's effective config, set by the platform; it changes
+	// whenever config does. The SDK caches decoded config by (tenant_id,
+	// config_version). Empty disables caching for the call.
+	ConfigVersion string `protobuf:"bytes,7,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -201,6 +205,13 @@ func (x *ExecutionContext) GetConfig() *structpb.Struct {
 		return x.Config
 	}
 	return nil
+}
+
+func (x *ExecutionContext) GetConfigVersion() string {
+	if x != nil {
+		return x.ConfigVersion
+	}
+	return ""
 }
 
 // ExecuteResponse is returned by the skill
@@ -845,14 +856,15 @@ const file_skill_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\x1a;\n" +
 	"\rBindingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\xbd\x02\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\xe4\x02\n" +
 	"\x10ExecutionContext\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1c\n" +
 	"\tnamespace\x18\x03 \x01(\tR\tnamespace\x12M\n" +
 	"\tvariables\x18\x04 \x03(\v2/.axiom.skill.v1.ExecutionContext.VariablesEntryR\tvariables\x12\x1b\n" +
 	"\ttenant_id\x18\x05 \x01(\tR\btenantId\x12/\n" +
-	"\x06config\x18\x06 \x01(\v2\x17.google.protobuf.StructR\x06config\x1a<\n" +
+	"\x06config\x18\x06 \x01(\v2\x17.google.protobuf.StructR\x06config\x12%\n" +
+	"\x0econfig_version\x18\a \x01(\tR\rconfigVersion\x1a<\n" +
 	"\x0eVariablesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xdb\x01\n" +

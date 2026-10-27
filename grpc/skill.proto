@@ -55,6 +55,10 @@ message ExecutionContext {
     // only, secrets included, host-audience fields never), resolved by the
     // platform for this call. Unset means the Skill runs on declared defaults.
     google.protobuf.Struct config = 6;
+    // Version of tenant_id's effective config, set by the platform; it changes
+    // whenever config does. The SDK caches decoded config by (tenant_id,
+    // config_version). Empty disables caching for the call.
+    string config_version = 7;
 }
 
 // ExecuteResponse is returned by the skill
