@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/axiom-studio/skills.sdk/config"
 	"github.com/axiom-studio/skills.sdk/executor"
 	skillpb "github.com/axiom-studio/skills.sdk/grpc/skillpb"
 	"github.com/axiom-studio/skills.sdk/resolver"
@@ -24,16 +26,66 @@ type SkillServer struct {
 	version   string
 	executors map[string]executor.StepExecutor
 	schemas   map[string]*resolver.NodeSchema
+	config    config.Runtime
 }
 
-// NewSkillServer creates a new skill server
-func NewSkillServer(skillID, version string) *SkillServer {
-	return &SkillServer{
+// Option configures a SkillServer.
+type Option func(*serverOptions)
+
+type serverOptions struct {
+	newConfig func(skillID string, check any) (config.Runtime, error)
+	check     any
+}
+
+// WithConfig declares the Skill's operator config as the tagged struct T (see
+// package config). The SDK derives the shared field schema from T, loads the
+// platform's values on Serve, and serves them to executors via config.From.
+func WithConfig[T any](opts ...config.Option) Option {
+	return func(o *serverOptions) {
+		o.newConfig = func(skillID string, check any) (config.Runtime, error) {
+			var fn func(context.Context, T) config.CheckResult
+			if check != nil {
+				var ok bool
+				if fn, ok = check.(func(context.Context, T) config.CheckResult); !ok {
+					return nil, fmt.Errorf("config: WithConfigCheck takes %T, want func(context.Context, %T) config.CheckResult", check, *new(T))
+				}
+			}
+			return config.NewStore[T](skillID, fn, opts...)
+		}
+	}
+}
+
+// WithConfigCheck declares a check of the Skill's config (for example, that an
+// API key works). The platform runs it through the Health RPC. T must be the
+// type given to WithConfig.
+func WithConfigCheck[T any](check func(ctx context.Context, cfg T) config.CheckResult) Option {
+	return func(o *serverOptions) { o.check = check }
+}
+
+// NewSkillServer creates a new skill server. It panics on an invalid config
+// declaration, which is a programming error caught at startup.
+func NewSkillServer(skillID, version string, opts ...Option) *SkillServer {
+	var o serverOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	s := &SkillServer{
 		skillID:   skillID,
 		version:   version,
 		executors: make(map[string]executor.StepExecutor),
 		schemas:   make(map[string]*resolver.NodeSchema),
 	}
+	switch {
+	case o.newConfig != nil:
+		rt, err := o.newConfig(skillID, o.check)
+		if err != nil {
+			panic(err)
+		}
+		s.config = rt
+	case o.check != nil:
+		panic("config: WithConfigCheck requires WithConfig")
+	}
+	return s
 }
 
 // RegisterExecutor registers an executor for a node type.
@@ -108,6 +160,12 @@ func (s *SkillServer) Execute(ctx context.Context, req *skillpb.ExecuteRequest) 
 		Run:       runContext,
 		Self:      selfContext,
 	})
+
+	// Scope operator config to the call's authenticated tenant, which the
+	// platform sets in the execution context, never from action arguments.
+	if s.config != nil {
+		ctx = s.config.Bind(ctx, req.GetContext().GetTenantId())
+	}
 
 	// Execute
 	result, err := exec.Execute(ctx, step, res)
@@ -187,11 +245,46 @@ func (s *SkillServer) GetNodeSchema(ctx context.Context, req *skillpb.GetNodeSch
 
 // Health implements skillpb.SkillServer
 func (s *SkillServer) Health(ctx context.Context, req *skillpb.HealthRequest) (*skillpb.HealthResponse, error) {
-	return &skillpb.HealthResponse{
+	resp := &skillpb.HealthResponse{
 		Healthy: true,
 		SkillId: s.skillID,
 		Version: s.version,
-	}, nil
+	}
+	if s.config == nil {
+		return resp, nil
+	}
+	status := s.config.Status()
+	resp.Config = &skillpb.ConfigStatus{
+		ConfigState: string(status.State),
+		Schema:      s.config.Schema().JSON(),
+		Version:     status.Version,
+		Detail:      status.Detail,
+	}
+	if req.GetConfigCheck() {
+		if result, ok := s.config.Check(ctx, req.GetConfigTenantId()); ok {
+			check := &skillpb.ConfigCheckResult{Status: string(result.Status)}
+			for _, c := range result.Checks {
+				check.Checks = append(check.Checks, &skillpb.ConfigCheck{
+					Id: c.ID, Label: c.Label, Status: string(c.Status), Detail: c.Detail,
+				})
+			}
+			resp.Config.ConfigCheck = check
+		}
+	}
+	return resp, nil
+}
+
+// StartConfig loads and watches the platform's config in the background until
+// ctx ends. Serve calls it; call it directly only when serving another way.
+func (s *SkillServer) StartConfig(ctx context.Context) {
+	if s.config == nil {
+		return
+	}
+	go func() {
+		if err := s.config.Run(ctx, config.SourceFromEnv()); err != nil {
+			log.Printf("skill config: %v", err)
+		}
+	}()
 }
 
 // Serve starts the Skill's gRPC endpoint. Discovery and lifecycle ownership
@@ -205,11 +298,16 @@ func (s *SkillServer) Serve(port string) error {
 	grpcServer := grpc.NewServer()
 	skillpb.RegisterSkillServiceServer(grpcServer, s)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.StartConfig(ctx)
+
 	// Handle graceful shutdown
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 		<-sigCh
+		cancel()
 		grpcServer.GracefulStop()
 	}()
 

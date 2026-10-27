@@ -1,0 +1,79 @@
+{
+  "scopes": [
+    "global",
+    "tenant"
+  ],
+  "fields": [
+    {
+      "key": "searchProvider",
+      "label": "Search provider",
+      "description": "Engine behind web search.",
+      "type": "enum",
+      "enum": [
+        "yahoo",
+        "tavily"
+      ],
+      "default": "yahoo",
+      "summary": true
+    },
+    {
+      "key": "tavilyApiKey",
+      "label": "Tavily API key",
+      "type": "secret",
+      "requiredWhen": {
+        "searchProvider": "tavily"
+      }
+    },
+    {
+      "key": "fallbackToYahoo",
+      "label": "Fall back to Yahoo",
+      "type": "bool",
+      "default": false,
+      "summary": true
+    },
+    {
+      "key": "maxResults",
+      "label": "Max results",
+      "type": "int",
+      "default": 10,
+      "min": 1,
+      "max": 50
+    },
+    {
+      "key": "region",
+      "label": "Region",
+      "type": "string",
+      "default": "us",
+      "scopes": [
+        "tenant"
+      ],
+      "pattern": "^[a-z]{2}$"
+    },
+    {
+      "key": "endpoint",
+      "label": "Endpoint",
+      "type": "url",
+      "default": "https://api.example.com",
+      "required": true,
+      "scopes": [
+        "global"
+      ]
+    },
+    {
+      "key": "oauthClientSecret",
+      "label": "OAuth client secret",
+      "type": "secret",
+      "scopes": [
+        "global"
+      ],
+      "audience": "host"
+    },
+    {
+      "key": "oauthClientId",
+      "label": "OAuth client ID",
+      "type": "string",
+      "default": "host-only",
+      "audience": "host"
+    }
+  ]
+}

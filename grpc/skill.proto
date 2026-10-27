@@ -45,6 +45,10 @@ message ExecutionContext {
     string agent_id = 2;
     string namespace = 3;
     map<string, string> variables = 4;
+    // Authenticated tenant of the call, set by the platform from the caller's
+    // identity (never from action arguments). The SDK scopes operator config
+    // to it.
+    string tenant_id = 5;
 }
 
 // ExecuteResponse is returned by the skill
@@ -86,11 +90,49 @@ message GetNodeSchemaResponse {
 }
 
 // HealthRequest
-message HealthRequest {}
+message HealthRequest {
+    // Run the Skill's config check (WithConfigCheck) and include the result.
+    bool config_check = 1;
+    // Tenant whose effective config the check runs against; empty means the
+    // global effective config.
+    string config_tenant_id = 2;
+}
 
 // HealthResponse
 message HealthResponse {
     bool healthy = 1;
     string skill_id = 2;
     string version = 3;
+    // Operator config status; unset when the Skill declares no config.
+    ConfigStatus config = 4;
+}
+
+// ConfigStatus reports a Skill's operator config.
+message ConfigStatus {
+    // "pending" until the platform's config (and secrets) have loaded; the
+    // Skill then runs on declared defaults. "loaded" afterwards.
+    string config_state = 1;
+    // Declared config section as JSON: {"scopes":[...],"fields":[...]} using
+    // the shared field schema.
+    bytes schema = 2;
+    // Version of the loaded config entry; 0 while pending.
+    uint64 version = 3;
+    // Last load problem, if any (never contains secret values).
+    string detail = 4;
+    // Result of the config check; set only when requested and declared.
+    ConfigCheckResult config_check = 5;
+}
+
+// ConfigCheckResult is the outcome of a Skill's config check.
+message ConfigCheckResult {
+    string status = 1; // "ok" | "warn" | "fail"
+    repeated ConfigCheck checks = 2;
+}
+
+// ConfigCheck is one row of a config check.
+message ConfigCheck {
+    string id = 1;
+    string label = 2;
+    string status = 3; // "ok" | "warn" | "fail"
+    string detail = 4;
 }

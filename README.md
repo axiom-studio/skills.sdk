@@ -551,6 +551,50 @@ func main() {
 }
 ```
 
+## Operator Config
+
+A Skill declares its operator settings (global, optionally overridden per
+tenant) as a tagged struct. The SDK derives the shared field schema from the
+tags, reports it over `Health`, loads the platform's values, and serves the
+effective config for each call's authenticated tenant.
+
+```go
+type Config struct {
+    SearchProvider  string        `config:"searchProvider" label:"Search provider" enum:"yahoo,tavily" default:"yahoo"`
+    TavilyAPIKey    config.Secret `config:"tavilyApiKey" label:"Tavily API key" requiredWhen:"searchProvider=tavily"`
+    FallbackToYahoo bool          `config:"fallbackToYahoo" label:"Fall back to Yahoo" summary:"true"`
+}
+
+s := grpc.NewSkillServer("skill-browser", "1.0.0",
+    grpc.WithConfig[Config](config.Scopes(config.Global, config.Tenant)),
+    grpc.WithConfigCheck(func(ctx context.Context, cfg Config) config.CheckResult {
+        return config.CheckResult{Checks: []config.Check{{ID: "provider", Label: "Provider reachable", Status: config.CheckOK}}}
+    }),
+)
+
+func (e *SearchExecutor) Execute(ctx context.Context, step *executor.StepDefinition, r executor.TemplateResolver) (*executor.StepResult, error) {
+    cfg := config.From[Config](ctx) // defaults, then global, then this call's tenant
+    key := cfg.TavilyAPIKey.Reveal()
+    ...
+}
+```
+
+Tags: `config` (key), `label`, `description`, `type:"url"` (string fields),
+`enum`, `default`, `required`, `requiredWhen:"field=value"`, `scopes`,
+`audience:"host"`, `summary`, `min`/`max` (int), `pattern` (string). Field
+types follow the Go type: `string`, `bool`, `int`, `config.Secret`. Invalid
+declarations panic in `NewSkillServer`.
+
+`config.Secret` never prints, logs or marshals its value; call `Reveal()`.
+Host-audience fields appear in the schema but are never delivered to the Skill.
+
+`Serve` loads config from the JetStream KV bucket `skill-config` (key: Skill
+ID) and fetches secret values from Sentinel when their version changes. The
+platform sets `AXIOM_SKILL_CONFIG_NATS_URL`, `AXIOM_SKILL_CONFIG_NATS_CREDS`,
+optionally `AXIOM_SKILL_CONFIG_NATS_DOMAIN`, `AXIOM_SKILL_CONFIG_SECRETS_URL`
+and `AXIOM_SKILL_IDENTITY_TOKEN_FILE`. Without them the Skill runs on declared
+defaults and `Health` reports `config_state: pending`.
+
 ## Node Types
 
 Each skill can register multiple node types. Node types should be namespaced to avoid collisions:
@@ -562,17 +606,11 @@ Each skill can register multiple node types. Node types should be namespaced to 
 
 ## Health Checks
 
-Skills must implement the `Health` RPC for monitoring:
-
-```go
-func (s *MyServer) Health(ctx context.Context, req *skillpb.HealthRequest) (*skillpb.HealthResponse, error) {
-    return &skillpb.HealthResponse{
-        Healthy: true,
-        SkillId: "my-skill",
-        Version: "1.0.0",
-    }, nil
-}
-```
+`SkillServer` implements the `Health` RPC. For a Skill with operator config,
+`HealthResponse.config` carries `config_state` (`pending`|`loaded`), the
+declared schema, the loaded version and any load problem. Set
+`HealthRequest.config_check` (and optionally `config_tenant_id`) to run the
+`WithConfigCheck` function and include its result.
 
 ## Deployment
 
